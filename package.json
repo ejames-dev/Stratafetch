@@ -1,0 +1,27 @@
+{
+  "name": "stratafetch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted web data infrastructure for HTML and PDF content.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/contracts apps/api",
+    "predev": "npm run build --workspace @stratafetch/contracts",
+    "dev": "npm run dev --workspace @stratafetch/api",
+    "dev:worker": "npm run dev:worker --workspace @stratafetch/api",
+    "start": "npm run start --workspace @stratafetch/api",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "tsc -b packages/contracts apps/api",
+    "check": "npm run build && npm test",
+    "browsers:install": "npx playwright install chromium"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
