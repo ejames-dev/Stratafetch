@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Verify generated OpenAPI document
+        run: npm run openapi:check
+      - name: Validate Compose files
+        env:
+          STRATAFETCH_IMAGE: ghcr.io/ejames-dev/stratafetch@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          STRATAFETCH_EGRESS_IMAGE: ghcr.io/ejames-dev/stratafetch-egress@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          STRATAFETCH_INGRESS_IMAGE: ghcr.io/ejames-dev/stratafetch-ingress@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          STRATAFETCH_POSTGRES_PASSWORD: ci-only-password
+          STRATAFETCH_ADMIN_TOKEN: ci-only-admin-token-that-is-at-least-32-characters
+        run: |
+          docker compose config --quiet
+          docker compose -f compose.yaml -f compose.release.yaml config --quiet
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the stack
+        run: docker compose up --build --detach --wait
+      - name: Verify readiness
+        run: curl --fail --show-error --retry 10 --retry-all-errors http://127.0.0.1:43100/health/ready
+      - name: Capture service logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes

@@ -8,13 +8,17 @@ export async function retrieveWithBrowser(options: {
   timeoutMs: number;
   waitAfterLoadMs: number;
   maxBytes: number;
+  proxyUrl?: string;
 }): Promise<RetrievedDocument> {
   await assertSafeHttpUrl(options.url);
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    ...(options.proxyUrl ? { proxy: { server: options.proxyUrl } } : {}),
+  });
 
   try {
     const context = await browser.newContext({
-      userAgent: "Stratafetch/0.1 (+https://github.com/ejames-dev/Stratafetch)"
+      userAgent: "Stratafetch/0.1 (+https://github.com/ejames-dev/Stratafetch)",
     });
     const page = await context.newPage();
 
@@ -34,16 +38,31 @@ export async function retrieveWithBrowser(options: {
 
     const response = await page.goto(options.url, {
       waitUntil: "domcontentloaded",
-      timeout: options.timeoutMs
+      timeout: options.timeoutMs,
     });
-    if (!response) throw new AppError("The browser did not receive a document response.", 422, "EMPTY_BROWSER_RESPONSE");
-    if (!response.ok()) throw new AppError(`The target returned HTTP ${response.status()}.`, 422, "UPSTREAM_HTTP_ERROR");
-    if (options.waitAfterLoadMs > 0) await page.waitForTimeout(options.waitAfterLoadMs);
+    if (!response)
+      throw new AppError(
+        "The browser did not receive a document response.",
+        422,
+        "EMPTY_BROWSER_RESPONSE",
+      );
+    if (!response.ok())
+      throw new AppError(
+        `The target returned HTTP ${response.status()}.`,
+        422,
+        "UPSTREAM_HTTP_ERROR",
+      );
+    if (options.waitAfterLoadMs > 0)
+      await page.waitForTimeout(options.waitAfterLoadMs);
 
     const html = await page.content();
     const body = Buffer.from(html);
     if (body.length > options.maxBytes) {
-      throw new AppError("The rendered page is larger than the configured limit.", 413, "CONTENT_TOO_LARGE");
+      throw new AppError(
+        "The rendered page is larger than the configured limit.",
+        413,
+        "CONTENT_TOO_LARGE",
+      );
     }
 
     return {
@@ -52,7 +71,7 @@ export async function retrieveWithBrowser(options: {
       status: response.status(),
       contentType: "text/html",
       mode: "browser",
-      body
+      body,
     };
   } finally {
     await browser.close();

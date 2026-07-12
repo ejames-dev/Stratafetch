@@ -1,6 +1,6 @@
 {
   "name": "stratafetch",
-  "version": "0.1.0",
+  "version": "1.0.0-alpha.1",
   "private": true,
   "description": "Self-hosted web data infrastructure for HTML and PDF content.",
   "engines": {
@@ -11,17 +11,23 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/contracts apps/api",
+    "build": "tsc -b packages/contracts apps/api && npm run build --workspace @stratafetch/web",
     "predev": "npm run build --workspace @stratafetch/contracts",
     "dev": "npm run dev --workspace @stratafetch/api",
     "dev:worker": "npm run dev:worker --workspace @stratafetch/api",
+    "dev:web": "npm run dev --workspace @stratafetch/web",
     "start": "npm run start --workspace @stratafetch/api",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "tsc -b packages/contracts apps/api",
-    "check": "npm run build && npm test",
-    "browsers:install": "npx playwright install chromium"
+    "format": "prettier --write . --ignore-unknown",
+    "format:check": "prettier --check . --ignore-unknown",
+    "check": "npm run format:check && npm run build && npm test",
+    "browsers:install": "npx playwright install chromium",
+    "openapi:generate": "npm run build && node scripts/generate-openapi.mjs",
+    "openapi:check": "npm run build && node scripts/generate-openapi.mjs --check"
   },
   "devDependencies": {
+    "prettier": "^3.6.2",
     "typescript": "7.0.2"
   }
 }

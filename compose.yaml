@@ -1,31 +1,75 @@
 services:
   api:
     build: .
-    environment:
+    environment: &app_environment
       HOST: 0.0.0.0
       PORT: 43100
       DATABASE_URL: postgresql://stratafetch:stratafetch@postgres:5432/stratafetch
       REDIS_URL: redis://redis:6379
-    ports:
-      - "43100:43100"
+      STRATAFETCH_ADMIN_TOKEN: ${STRATAFETCH_ADMIN_TOKEN:-development-admin-token-change-me}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ALLOW_ROBOTS_OVERRIDE: ${ALLOW_ROBOTS_OVERRIDE:-false}
+      EGRESS_PROXY_URL: http://egress:3128
+      HTTP_PROXY: http://egress:3128
+      HTTPS_PROXY: http://egress:3128
+      NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker
+      NODE_USE_ENV_PROXY: "1"
+    networks: [core]
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      egress: { condition: service_started }
 
   worker:
     build: .
     command: node apps/api/dist/worker.js
     environment:
-      DATABASE_URL: postgresql://stratafetch:stratafetch@postgres:5432/stratafetch
-      REDIS_URL: redis://redis:6379
+      <<: *app_environment
       COLLECTION_DELAY_MS: 250
+      PER_HOST_DELAY_MS: 1000
+      HTTP_CONCURRENCY: 8
+      BROWSER_CONCURRENCY: 2
+    networks: [core]
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      egress: { condition: service_started }
+
+  egress:
+    build:
+      context: .
+      dockerfile: Dockerfile.egress
+    networks: [core, edge]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "3128"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ingress:
+    build:
+      context: .
+      dockerfile: Dockerfile.ingress
+    ports:
+      - "${STRATAFETCH_PORT:-43100}:43100"
+    networks: [core, edge]
+    depends_on:
+      - api
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:43100/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   postgres:
     image: postgres:17-alpine
@@ -33,10 +77,9 @@ services:
       POSTGRES_DB: stratafetch
       POSTGRES_USER: stratafetch
       POSTGRES_PASSWORD: stratafetch
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5432}:5432"]
+    networks: [core]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stratafetch -d stratafetch"]
       interval: 5s
@@ -46,15 +89,19 @@ services:
   redis:
     image: redis:8-alpine
     command: redis-server --appendonly yes
-    volumes:
-      - redis-data:/data
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes: ["redis-data:/data"]
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
+    networks: [core]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+networks:
+  core:
+    internal: true
+  edge: {}
 
 volumes:
   postgres-data:

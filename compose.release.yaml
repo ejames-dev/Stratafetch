@@ -1,0 +1,49 @@
+# Release overlay. The release workflow combines this with compose.yaml and renders
+# stratafetch-compose.yaml with STRATAFETCH_IMAGE pinned to an immutable digest.
+services:
+  api:
+    image: ${STRATAFETCH_IMAGE:?Set STRATAFETCH_IMAGE to a signed GHCR digest}
+    build: !reset null
+    environment:
+      DATABASE_URL: postgresql://stratafetch:${STRATAFETCH_POSTGRES_PASSWORD:?Set STRATAFETCH_POSTGRES_PASSWORD}@postgres:5432/stratafetch
+      STRATAFETCH_ADMIN_TOKEN: ${STRATAFETCH_ADMIN_TOKEN:?Set STRATAFETCH_ADMIN_TOKEN}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ALLOW_ROBOTS_OVERRIDE: ${ALLOW_ROBOTS_OVERRIDE:-false}
+      CONTENT_RETENTION_DAYS: ${CONTENT_RETENTION_DAYS:-30}
+      HTTP_CONCURRENCY: ${HTTP_CONCURRENCY:-8}
+      BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      PER_HOST_DELAY_MS: ${PER_HOST_DELAY_MS:-1000}
+
+  worker:
+    image: ${STRATAFETCH_IMAGE:?Set STRATAFETCH_IMAGE to a signed GHCR digest}
+    build: !reset null
+    environment:
+      DATABASE_URL: postgresql://stratafetch:${STRATAFETCH_POSTGRES_PASSWORD:?Set STRATAFETCH_POSTGRES_PASSWORD}@postgres:5432/stratafetch
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ALLOW_ROBOTS_OVERRIDE: ${ALLOW_ROBOTS_OVERRIDE:-false}
+      CONTENT_RETENTION_DAYS: ${CONTENT_RETENTION_DAYS:-30}
+      HTTP_CONCURRENCY: ${HTTP_CONCURRENCY:-8}
+      BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      PER_HOST_DELAY_MS: ${PER_HOST_DELAY_MS:-1000}
+
+  egress:
+    image: ${STRATAFETCH_EGRESS_IMAGE:?Set STRATAFETCH_EGRESS_IMAGE to a signed GHCR digest}
+    build: !reset null
+
+  ingress:
+    image: ${STRATAFETCH_INGRESS_IMAGE:?Set STRATAFETCH_INGRESS_IMAGE to a signed GHCR digest}
+    build: !reset null
+
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_PASSWORD: ${STRATAFETCH_POSTGRES_PASSWORD:?Set STRATAFETCH_POSTGRES_PASSWORD}
+    ports: !reset []
+
+  redis:
+    image: redis:8-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+    ports: !reset []

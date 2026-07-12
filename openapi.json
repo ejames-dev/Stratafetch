@@ -1,0 +1,452 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Stratafetch API",
+    "version": "1.0.0-alpha.1",
+    "description": "Self-hosted web data operations API"
+  },
+  "servers": [{ "url": "/" }],
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "schemas": {
+      "FetchRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "mode": {
+            "default": "http",
+            "type": "string",
+            "enum": ["http", "browser"]
+          },
+          "outputs": {
+            "default": ["markdown", "text", "links"],
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["markdown", "text", "html", "links"]
+            }
+          },
+          "timeoutMs": {
+            "default": 30000,
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 60000
+          },
+          "waitAfterLoadMs": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "robotsPolicy": {
+            "default": "respect",
+            "type": "string",
+            "enum": ["respect", "ignore"]
+          }
+        },
+        "required": [
+          "url",
+          "mode",
+          "outputs",
+          "timeoutMs",
+          "waitAfterLoadMs",
+          "robotsPolicy"
+        ],
+        "additionalProperties": false
+      },
+      "SurveyRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "startUrl": { "type": "string", "format": "uri" },
+          "maxUrls": {
+            "default": 1000,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "maxDepth": {
+            "default": 5,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "include": {
+            "default": [],
+            "maxItems": 50,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "exclude": {
+            "default": [],
+            "maxItems": 50,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "includeSubdomains": { "default": false, "type": "boolean" },
+          "mode": {
+            "default": "http",
+            "type": "string",
+            "enum": ["http", "browser"]
+          },
+          "robotsPolicy": {
+            "default": "respect",
+            "type": "string",
+            "enum": ["respect", "ignore"]
+          }
+        },
+        "required": [
+          "startUrl",
+          "maxUrls",
+          "maxDepth",
+          "include",
+          "exclude",
+          "includeSubdomains",
+          "mode",
+          "robotsPolicy"
+        ],
+        "additionalProperties": false
+      },
+      "CollectionRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "survey" },
+                  "surveyId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": ["type", "surveyId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "urls" },
+                  "urls": {
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "type": "array",
+                    "items": { "type": "string", "format": "uri" }
+                  }
+                },
+                "required": ["type", "urls"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "mode": {
+            "default": "http",
+            "type": "string",
+            "enum": ["http", "browser"]
+          },
+          "outputs": {
+            "default": ["markdown", "text"],
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["markdown", "text", "html", "links"]
+            }
+          },
+          "timeoutMs": {
+            "default": 30000,
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 60000
+          },
+          "waitAfterLoadMs": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "robotsPolicy": {
+            "default": "respect",
+            "type": "string",
+            "enum": ["respect", "ignore"]
+          }
+        },
+        "required": [
+          "source",
+          "mode",
+          "outputs",
+          "timeoutMs",
+          "waitAfterLoadMs",
+          "robotsPolicy"
+        ],
+        "additionalProperties": false
+      },
+      "SearchRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "limit": {
+            "default": 10,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+          "language": { "type": "string", "minLength": 2, "maxLength": 10 },
+          "freshness": {
+            "type": "string",
+            "enum": ["day", "week", "month", "year"]
+          }
+        },
+        "required": ["query", "limit"],
+        "additionalProperties": false
+      },
+      "ShapeRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "fetch" },
+                  "fetchId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": ["type", "fetchId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "collection" },
+                  "collectionId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "pageIds": {
+                    "maxItems": 1000,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  }
+                },
+                "required": ["type", "collectionId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "inline" },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000000
+                  }
+                },
+                "required": ["type", "content"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "schema": {
+            "type": "object",
+            "propertyNames": { "type": "string" },
+            "additionalProperties": {}
+          },
+          "instructions": { "type": "string", "maxLength": 10000 }
+        },
+        "required": ["source", "schema"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/v1/fetch": {
+      "post": {
+        "summary": "Fetch one HTML page or PDF",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FetchRequest" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/surveys": {
+      "post": {
+        "summary": "Queue a URL discovery survey",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SurveyRequest" }
+            }
+          }
+        },
+        "responses": { "202": { "description": "Accepted" } }
+      }
+    },
+    "/v1/surveys/{id}": {
+      "get": {
+        "summary": "Get a survey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/surveys/{id}/urls": {
+      "get": {
+        "summary": "List discovered survey URLs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/collections": {
+      "post": {
+        "summary": "Queue retrieval for surveyed or explicit URLs",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CollectionRequest" }
+            }
+          }
+        },
+        "responses": { "202": { "description": "Accepted" } }
+      }
+    },
+    "/v1/collections/{id}": {
+      "get": {
+        "summary": "Get a collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/collections/{id}/pages": {
+      "get": {
+        "summary": "List collection pages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/search": {
+      "post": {
+        "summary": "Search through Brave Search",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SearchRequest" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/shapes": {
+      "post": {
+        "summary": "Queue schema-validated OpenAI extraction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ShapeRequest" }
+            }
+          }
+        },
+        "responses": { "202": { "description": "Accepted" } }
+      }
+    },
+    "/v1/operations": {
+      "get": {
+        "summary": "List operations",
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/operations/{id}": {
+      "get": {
+        "summary": "Get an operation",
+        "responses": { "200": { "description": "Successful response" } }
+      },
+      "delete": {
+        "summary": "Delete an operation and stored results",
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/v1/operations/{id}/cancel": {
+      "post": {
+        "summary": "Request cooperative cancellation",
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/v1/operations/{id}/export": {
+      "get": {
+        "summary": "Export JSON, JSONL, or Markdown",
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Liveness",
+        "security": [],
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Check database and Redis readiness",
+        "security": [],
+        "responses": {
+          "200": { "description": "Successful response" },
+          "503": { "description": "Not ready" }
+        }
+      }
+    }
+  }
+}

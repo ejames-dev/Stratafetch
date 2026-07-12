@@ -1,107 +1,112 @@
-import type { CollectionRequest, FetchRequest, FetchResponse } from "@stratafetch/contracts";
-import type { CollectionRepository } from "./repository.js";
-
-export type CollectionFetcher = (request: FetchRequest, maxBytes: number) => Promise<FetchResponse>;
-
-function normalizeSameOriginLink(link: string, origin: string): string | null {
-  try {
-    const url = new URL(link);
-    if (url.origin !== origin || (url.protocol !== "http:" && url.protocol !== "https:")) return null;
-    url.hash = "";
-    return url.href;
-  } catch {
-    return null;
-  }
-}
-
-function sleep(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function selectRequestedContent(
+import type {
+  CollectionRequest,
+  FetchRequest,
+  FetchResponse,
+} from "@stratafetch/contracts";
+import type { OperationRepository } from "../operations/repository.js";
+import type { RobotsService } from "../robots/service.js";
+import type { SurveyRepository } from "../surveys/repository.js";
+import { PostgresCollectionRepository } from "./repository.js";
+export type CollectionFetcher = (
+  request: FetchRequest,
+  maxBytes: number,
+) => Promise<FetchResponse>;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const select = (
   content: FetchResponse["data"]["content"],
-  outputs: CollectionRequest["outputs"]
-): FetchResponse["data"]["content"] {
-  return {
-    ...(outputs.includes("markdown") && content.markdown !== undefined ? { markdown: content.markdown } : {}),
-    ...(outputs.includes("text") && content.text !== undefined ? { text: content.text } : {}),
-    ...(outputs.includes("html") && content.html !== undefined ? { html: content.html } : {}),
-    ...(outputs.includes("links") && content.links !== undefined ? { links: content.links } : {})
-  };
-}
-
+  outputs: CollectionRequest["outputs"],
+) =>
+  Object.fromEntries(
+    Object.entries(content).filter(([key]) => outputs.includes(key as never)),
+  );
 export async function processCollection(options: {
   collectionId: string;
-  repository: CollectionRepository;
+  repo: PostgresCollectionRepository;
+  surveys: SurveyRepository;
+  operations: OperationRepository;
+  robots: RobotsService;
   fetcher: CollectionFetcher;
   maxBytes: number;
   delayMs: number;
-}): Promise<void> {
-  const collection = await options.repository.get(options.collectionId);
-  if (!collection) throw new Error(`Collection ${options.collectionId} does not exist.`);
-
-  await options.repository.markRunning(collection.id);
-  const origin = new URL(collection.startUrl).origin;
-  const pending = [collection.startUrl];
-  const seen = new Set(pending);
-  let processed = 0;
-  let failed = 0;
-
+}) {
+  const item = await options.repo.get(options.collectionId);
+  if (!item) throw new Error("Collection not found");
+  const urls =
+    item.source.type === "survey"
+      ? await options.surveys.allUrls(item.source.surveyId)
+      : item.source.urls;
+  await options.operations.markRunning(item.operationId);
+  await options.repo.updateStatus(item.id, "running");
+  let processed = 0,
+    failed = 0;
   try {
-    while (pending.length > 0 && processed < collection.maxPages) {
-      const url = pending.shift()!;
+    for (const url of urls) {
+      if (await options.operations.isCancellationRequested(item.operationId)) {
+        await options.repo.updateStatus(item.id, "cancelled");
+        await options.operations.markCancelled(item.operationId);
+        return;
+      }
       try {
-        const internalOutputs = [...new Set([...collection.outputs, "links"])] as CollectionRequest["outputs"];
-        const response = await options.fetcher({
+        const robotsAllowed = await options.robots.assertAllowed(
           url,
-          mode: collection.mode,
-          outputs: internalOutputs,
-          timeoutMs: collection.timeoutMs,
-          waitAfterLoadMs: collection.waitAfterLoadMs
-        }, options.maxBytes);
-        const discoveredLinks = response.data.content.links ?? [];
-
-        await options.repository.savePage({
-          collectionId: collection.id,
+          item.robotsPolicy,
+        );
+        const response = await options.fetcher(
+          {
+            url,
+            mode: item.mode,
+            outputs: item.outputs,
+            timeoutMs: item.timeoutMs,
+            waitAfterLoadMs: item.waitAfterLoadMs,
+            robotsPolicy: item.robotsPolicy,
+          },
+          options.maxBytes,
+        );
+        response.data.source.robotsAllowed = robotsAllowed;
+        await options.repo.savePage({
+          collectionId: item.id,
           url,
           status: "completed",
           source: response.data.source,
-          content: selectRequestedContent(response.data.content, collection.outputs),
-          error: null
+          content: select(response.data.content, item.outputs),
+          error: null,
+          expiresAt:
+            (await options.operations.get(item.operationId))
+              ?.contentExpiresAt ?? null,
         });
-
-        for (const link of discoveredLinks) {
-          if (seen.size >= collection.maxPages) break;
-          const normalized = normalizeSameOriginLink(link, origin);
-          if (!normalized || seen.has(normalized)) continue;
-          seen.add(normalized);
-          pending.push(normalized);
-        }
       } catch (error) {
-        failed += 1;
-        await options.repository.savePage({
-          collectionId: collection.id,
+        failed++;
+        await options.repo.savePage({
+          collectionId: item.id,
           url,
           status: "failed",
           source: null,
           content: null,
-          error: error instanceof Error ? error.message : "Unknown collection page error"
+          error: error instanceof Error ? error.message : "Unknown error",
+          expiresAt: null,
         });
       }
-
-      processed += 1;
-      await options.repository.setProgress(collection.id, seen.size, processed, failed);
-      if (pending.length > 0 && options.delayMs > 0) await sleep(options.delayMs);
+      processed++;
+      await options.repo.setProgress(item.id, processed, failed);
+      if (processed < urls.length && options.delayMs)
+        await sleep(options.delayMs);
     }
-
-    if (processed > 0 && failed === processed) {
+    if (processed && failed === processed)
       throw new Error("Every page in the collection failed.");
-    }
-    await options.repository.markCompleted(collection.id);
+    await options.repo.updateStatus(item.id, "completed");
+    await options.operations.complete(item.operationId, {
+      collectionId: item.id,
+      processedPages: processed,
+      failedPages: failed,
+    });
   } catch (error) {
-    await options.repository.markFailed(
-      collection.id,
-      error instanceof Error ? error.message : "Unknown collection error"
+    const message =
+      error instanceof Error ? error.message : "Collection failed";
+    await options.repo.updateStatus(item.id, "failed", message);
+    await options.operations.fail(
+      item.operationId,
+      "COLLECTION_FAILED",
+      message,
     );
     throw error;
   }

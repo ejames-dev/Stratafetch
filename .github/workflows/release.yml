@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a commit on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run openapi:check
+      - name: Match package and tag versions
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          test "$package_version" = "$tag_version" || {
+            echo "Package version $package_version does not match tag $tag_version" >&2
+            exit 1
+          }
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ contains(github.ref_name, '-') && 'prerelease' || 'release' }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        name: Set image name
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - id: egress-build
+        name: Build and publish the egress image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.egress
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.name }}-egress:${{ github.ref_name }}
+          provenance: mode=max
+          cache-from: type=gha,scope=egress
+          cache-to: type=gha,mode=max,scope=egress
+      - id: ingress-build
+        name: Build and publish the ingress image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ingress
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.name }}-ingress:${{ github.ref_name }}
+          provenance: mode=max
+          cache-from: type=gha,scope=ingress
+          cache-to: type=gha,mode=max,scope=ingress
+      - uses: sigstore/cosign-installer@v3.10.0
+      - name: Sign the image manifest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - name: Sign the egress image manifest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}-egress
+          DIGEST: ${{ steps.egress-build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - name: Sign the ingress image manifest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}-ingress
+          DIGEST: ${{ steps.ingress-build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - name: Scan the published image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          format: table
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: stratafetch.spdx.json
+      - name: Scan the published egress image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.name }}-egress@${{ steps.egress-build.outputs.digest }}
+          format: table
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Generate egress SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.image.outputs.name }}-egress@${{ steps.egress-build.outputs.digest }}
+          format: spdx-json
+          output-file: stratafetch-egress.spdx.json
+      - name: Scan the published ingress image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.name }}-ingress@${{ steps.ingress-build.outputs.digest }}
+          format: table
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Generate ingress SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.image.outputs.name }}-ingress@${{ steps.ingress-build.outputs.digest }}
+          format: spdx-json
+          output-file: stratafetch-ingress.spdx.json
+      - name: Render digest-pinned Compose deployment
+        env:
+          STRATAFETCH_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          STRATAFETCH_EGRESS_IMAGE: ${{ steps.image.outputs.name }}-egress@${{ steps.egress-build.outputs.digest }}
+          STRATAFETCH_INGRESS_IMAGE: ${{ steps.image.outputs.name }}-ingress@${{ steps.ingress-build.outputs.digest }}
+        run: |
+          docker compose -f compose.yaml -f compose.release.yaml config --no-interpolate > stratafetch-compose.yaml
+          escaped_image="$(printf '%s' "$STRATAFETCH_IMAGE" | sed 's/[&|]/\\&/g')"
+          sed -i 's|${STRATAFETCH_IMAGE:?Set STRATAFETCH_IMAGE to a signed GHCR digest}|'"$escaped_image"'|g' stratafetch-compose.yaml
+          escaped_egress_image="$(printf '%s' "$STRATAFETCH_EGRESS_IMAGE" | sed 's/[&|]/\\&/g')"
+          sed -i 's|${STRATAFETCH_EGRESS_IMAGE:?Set STRATAFETCH_EGRESS_IMAGE to a signed GHCR digest}|'"$escaped_egress_image"'|g' stratafetch-compose.yaml
+          escaped_ingress_image="$(printf '%s' "$STRATAFETCH_INGRESS_IMAGE" | sed 's/[&|]/\\&/g')"
+          sed -i 's|${STRATAFETCH_INGRESS_IMAGE:?Set STRATAFETCH_INGRESS_IMAGE to a signed GHCR digest}|'"$escaped_ingress_image"'|g' stratafetch-compose.yaml
+          grep -F "$STRATAFETCH_IMAGE" stratafetch-compose.yaml
+          grep -F "$STRATAFETCH_EGRESS_IMAGE" stratafetch-compose.yaml
+          grep -F "$STRATAFETCH_INGRESS_IMAGE" stratafetch-compose.yaml
+      - name: Collect release artifacts and checksums
+        run: |
+          cp openapi.json stratafetch-openapi.json
+          sha256sum stratafetch-compose.yaml stratafetch-openapi.json stratafetch.spdx.json stratafetch-egress.spdx.json stratafetch-ingress.spdx.json > SHA256SUMS
+      - id: kind
+        name: Determine release kind
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.kind.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            SHA256SUMS
+            stratafetch-compose.yaml
+            stratafetch-openapi.json
+            stratafetch.spdx.json
+            stratafetch-egress.spdx.json
+            stratafetch-ingress.spdx.json

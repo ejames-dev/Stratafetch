@@ -1,169 +1,101 @@
 # Stratafetch
 
-Self-hosted web data infrastructure for turning HTML pages and PDFs into useful, structured information.
+Stratafetch is a self-hosted web-data platform for discovering public URLs, retrieving
+HTML and PDFs, searching the web, and transforming stored content into validated JSON.
+The current package version is `1.0.0-alpha.1`; the API is being exercised against the
+1.0 contract, but this is not a GA release.
 
-> **Early development:** Stratafetch is currently in the planning and initial implementation stage. Its APIs and workflows are not yet stable.
+## Included capabilities
 
-## Vision
+- **Fetch** synchronously retrieves one page with HTTP or Playwright and stores its
+  provenance and requested outputs.
+- **Survey** asynchronously discovers up to 10,000 same-site URLs from sitemaps and
+  bounded link traversal.
+- **Collection** asynchronously retrieves up to 1,000 URLs from one completed Survey or
+  an explicit URL list. Collection never performs discovery.
+- **Search** returns ranked Brave Search metadata without fetching result pages.
+- **Shape** uses OpenAI Structured Outputs and JSON Schema Draft 2020-12 validation to
+  transform a Fetch, Collection, selected pages, or bounded inline content.
+- The same-origin dashboard launches capabilities, follows operations, exports results,
+  manages scoped API keys, and reports provider/system health.
 
-Stratafetch is an original web data platform built around a simple idea: retrieving a page is only the beginning. Useful web data also needs discovery, collection, transformation, and clear provenance.
+Search and Shape are optional. Without their server-side credentials they return the
+stable `PROVIDER_NOT_CONFIGURED` error while Fetch, Survey, and Collection remain usable.
 
-The project is designed as its own product, with an original API, interface, terminology, and architecture.
+## Quick start
 
-## Planned capabilities
+Requirements are Docker with Compose, or Node.js 22 and npm 10 for local development.
 
-- **Fetch** — retrieve and transform a single HTML page or PDF.
-- **Survey** — discover URLs and understand a site's structure.
-- **Collection** — gather content from multiple pages as a durable background job.
-- **Search** — find relevant pages through pluggable search providers.
-- **Shape** — transform collected content into schema-validated JSON.
+```bash
+cp .env.example .env
+# Replace STRATAFETCH_ADMIN_TOKEN with at least 24 random characters.
+docker compose up --build --detach --wait
+curl --fail http://127.0.0.1:43100/health/ready
+```
 
-## Project principles
+Open `http://localhost:43100` and authenticate with `STRATAFETCH_ADMIN_TOKEN`. The token
+is exchanged for a secure HTTP-only same-site session; it is not retained by the
+dashboard. Provider credentials remain environment-only.
 
-- Self-hosted by default.
-- A clear REST API and practical web dashboard.
-- Provider interfaces for search, AI extraction, and proxies.
-- Respectful crawling with robots.txt support and per-host rate controls.
-- Standard HTTP and JavaScript-rendered page support without CAPTCHA-bypass claims.
-- Secure handling of URLs, credentials, stored content, and network access.
+The Compose topology keeps API, workers, PostgreSQL, and Redis on an internal network.
+An ingress proxy exposes port `43100`; all outbound HTTP/browser traffic uses a separate
+egress proxy that rejects loopback, private, link-local, multicast, and metadata targets.
 
-## Initial scope
+## API keys and requests
 
-The first release will focus on HTML and PDF content, JavaScript rendering, asynchronous crawl jobs, OpenAI and Brave provider adapters, and Docker Compose deployment.
+Create a scoped key using the bootstrap token (the returned secret is shown once):
 
-## Status
+```bash
+curl --request POST http://localhost:43100/v1/admin/keys \
+  --header "Authorization: Bearer $STRATAFETCH_ADMIN_TOKEN" \
+  --header 'content-type: application/json' \
+  --data '{"name":"local-client","scopes":["fetch","survey","collect"]}'
+```
 
-The first implementation slice is underway. The repository currently includes:
+Then call a capability with the issued `sf_...` key:
 
-- A Node.js 22 and TypeScript workspace.
-- `POST /v1/fetch` with an original request and response model.
-- Standard HTTP retrieval and explicit Playwright browser rendering.
-- HTML-to-Markdown, plain-text, source HTML, and link extraction.
-- PDF text extraction.
-- URL, DNS, redirect, response-size, and private-network safeguards.
-- PostgreSQL-backed Collection records and page results.
-- Redis/BullMQ-backed Collection execution in a separate worker process.
-- Docker Compose services for the API, worker, PostgreSQL, and Redis.
+```bash
+curl --request POST http://localhost:43100/v1/fetch \
+  --header "Authorization: Bearer $STRATAFETCH_API_KEY" \
+  --header 'Idempotency-Key: 0b637a8c-ffad-49d6-a0db-12de73606a14' \
+  --header 'content-type: application/json' \
+  --data '{"url":"https://example.org","outputs":["markdown","links"]}'
+```
 
-Survey, Search, Shape, the dashboard, authentication, and provider adapters remain
-planned work. Collection currently performs bounded, same-origin discovery; richer
-survey rules, robots.txt policy, and scheduling controls are still to come.
+Survey and Collection return `202 Accepted`; poll their operation ID at
+`GET /v1/operations/{id}`. Generated OpenAPI 3.1 is available at `/openapi.json` and in
+[openapi.json](openapi.json). See [the API guide](docs/api.md) for the complete contract.
 
 ## Development
-
-Requirements:
-
-- Node.js 22 or newer
-- npm 10 or newer
-- Docker with Compose for the containerized stack
-
-Install dependencies and validate the workspace:
 
 ```bash
 npm install
 npm run check
+npm run openapi:check
+docker compose config --quiet
 ```
 
-Install Chromium when using browser-rendered fetches outside Docker:
+For host-based development, start PostgreSQL and Redis, then run the API/dashboard and
+worker separately:
 
 ```bash
-npm run browsers:install
-```
-
-Start the backing services, API, and worker in watch mode:
-
-```bash
-cp .env.example .env
-docker compose up -d postgres redis
+docker compose up -d postgres redis egress
 npm run dev
-```
-
-Run the worker in a second terminal:
-
-```bash
 npm run dev:worker
 ```
 
-The API listens on `http://localhost:43100` by default. Its health endpoint is
-`GET /health`.
+Browser retrieval outside the image also requires `npm run browsers:install`.
 
-## Fetch API
+## Operations, security, and releases
 
-Fetch a page over standard HTTP:
+- [Operations, backup, restore, and upgrades](docs/operations.md)
+- [Deployment security and known limitations](docs/security.md)
+- [Release gates and artifact verification](docs/releasing.md)
+- [Contribution guide](CONTRIBUTING.md) and [security policy](SECURITY.md)
 
-```bash
-curl --request POST http://localhost:43100/v1/fetch \
-  --header 'content-type: application/json' \
-  --data '{
-    "url": "https://example.com",
-    "outputs": ["markdown", "text", "links"]
-  }'
-```
+Content expires after 30 days by default; operation metadata remains until deletion.
+Stratafetch respects robots.txt by default and applies bounded retries, concurrency, and
+per-host delays. It does not promise CAPTCHA bypass, stealth, access-control
+circumvention, or managed hosting.
 
-Use JavaScript rendering by setting `mode` to `browser`:
-
-```json
-{
-  "url": "https://example.com/app",
-  "mode": "browser",
-  "outputs": ["markdown", "html"],
-  "waitAfterLoadMs": 1000
-}
-```
-
-`mode` defaults to `http`. Browser mode is explicit so ordinary requests do not pay
-the browser startup cost and deployments without Chromium fail predictably.
-
-## Collection API
-
-Create a durable, asynchronous same-origin collection:
-
-```bash
-curl --request POST http://localhost:43100/v1/collections \
-  --header 'content-type: application/json' \
-  --data '{
-    "startUrl": "https://example.com",
-    "maxPages": 10,
-    "mode": "http",
-    "outputs": ["markdown", "text"]
-  }'
-```
-
-The API returns `202 Accepted` with a collection ID. Read its status and stored page
-results with:
-
-```bash
-curl http://localhost:43100/v1/collections/<collection-id>
-curl http://localhost:43100/v1/collections/<collection-id>/pages
-```
-
-Collection records and page results are stored in PostgreSQL. BullMQ queues the durable
-collection ID in Redis, and the worker reloads the authoritative request from PostgreSQL
-before processing it. Jobs are limited to 100 pages in this initial implementation,
-stay on the starting origin, and wait `COLLECTION_DELAY_MS` between pages.
-
-## Containers
-
-Build and start the API and its planned backing services:
-
-```bash
-docker compose up --build
-```
-
-PostgreSQL and Redis use named volumes. The example credentials in `compose.yaml` are
-for local development and must be replaced before any shared or internet-facing
-deployment. Their development ports bind to `127.0.0.1` only and can be changed with
-`POSTGRES_PORT` and `REDIS_PORT`.
-
-## Security boundary
-
-Fetch rejects non-HTTP protocols, URL-embedded credentials, hostnames resolving to
-non-public IP ranges, redirects to non-public targets, and responses over the configured
-size limit. Browser mode also inspects subrequests before allowing them.
-
-These application checks reduce SSRF risk, but they are not a substitute for network
-egress controls. Production deployments should run fetch workers in an isolated network
-that cannot reach cloud metadata endpoints or private services.
-
-Contribution guidelines and a project license will be added before outside
-contributions are accepted.
+Apache-2.0 licensed. See [LICENSE](LICENSE).

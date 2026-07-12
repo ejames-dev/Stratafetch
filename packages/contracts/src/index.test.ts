@@ -1,36 +1,60 @@
 import { describe, expect, it } from "vitest";
-import { collectionRequestSchema, fetchRequestSchema } from "./index.js";
+import {
+  collectionRequestSchema,
+  fetchRequestSchema,
+  searchRequestSchema,
+  shapeRequestSchema,
+  surveyRequestSchema,
+} from "./index.js";
 
-describe("fetchRequestSchema", () => {
-  it("applies safe defaults", () => {
-    const request = fetchRequestSchema.parse({ url: "https://example.com" });
-
-    expect(request.mode).toBe("http");
-    expect(request.outputs).toEqual(["markdown", "text", "links"]);
-    expect(request.timeoutMs).toBe(30_000);
+describe("Stratafetch v1 contracts", () => {
+  it("applies safe Fetch defaults", () => {
+    expect(
+      fetchRequestSchema.parse({ url: "https://example.test" }),
+    ).toMatchObject({
+      mode: "http",
+      robotsPolicy: "respect",
+      timeoutMs: 30_000,
+    });
   });
 
-  it("rejects unsupported output types", () => {
-    expect(() => fetchRequestSchema.parse({
-      url: "https://example.com",
-      outputs: ["screenshot"]
-    })).toThrow();
-  });
-});
-
-describe("collectionRequestSchema", () => {
-  it("applies bounded collection defaults", () => {
-    const request = collectionRequestSchema.parse({ startUrl: "https://example.com" });
-
-    expect(request.maxPages).toBe(10);
-    expect(request.mode).toBe("http");
-    expect(request.outputs).toEqual(["markdown", "text"]);
+  it("bounds Survey discovery", () => {
+    expect(
+      surveyRequestSchema.parse({ startUrl: "https://example.test" }).maxUrls,
+    ).toBe(1_000);
+    expect(() =>
+      surveyRequestSchema.parse({
+        startUrl: "https://example.test",
+        maxUrls: 10_001,
+      }),
+    ).toThrow();
   });
 
-  it("rejects collection sizes above the initial safety limit", () => {
-    expect(() => collectionRequestSchema.parse({
-      startUrl: "https://example.com",
-      maxPages: 101
-    })).toThrow();
+  it("requires a strict Collection source", () => {
+    expect(
+      collectionRequestSchema.parse({
+        source: { type: "urls", urls: ["https://example.test"] },
+      }).source.type,
+    ).toBe("urls");
+    expect(() =>
+      collectionRequestSchema.parse({ startUrl: "https://example.test" }),
+    ).toThrow();
+  });
+
+  it("bounds Search results", () => {
+    expect(
+      searchRequestSchema.parse({ query: "strata", limit: 20 }).limit,
+    ).toBe(20);
+    expect(() =>
+      searchRequestSchema.parse({ query: "strata", limit: 21 }),
+    ).toThrow();
+  });
+
+  it("accepts JSON-schema Shape requests", () => {
+    const value = shapeRequestSchema.parse({
+      source: { type: "inline", content: "A layered page" },
+      schema: { type: "object", properties: { title: { type: "string" } } },
+    });
+    expect(value.source.type).toBe("inline");
   });
 });
