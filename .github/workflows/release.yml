@@ -123,7 +123,7 @@ jobs:
           DIGEST: ${{ steps.ingress-build.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
       - name: Scan the published image
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
           format: table
@@ -137,7 +137,7 @@ jobs:
           format: spdx-json
           output-file: stratafetch.spdx.json
       - name: Scan the published egress image
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.name }}-egress@${{ steps.egress-build.outputs.digest }}
           format: table
@@ -151,7 +151,7 @@ jobs:
           format: spdx-json
           output-file: stratafetch-egress.spdx.json
       - name: Scan the published ingress image
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.name }}-ingress@${{ steps.ingress-build.outputs.digest }}
           format: table

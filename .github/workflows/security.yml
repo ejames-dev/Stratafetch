@@ -63,7 +63,7 @@ jobs:
           tags: stratafetch:security-scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: stratafetch:security-scan
           format: table
