@@ -1,5 +1,6 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
+RUN npm install -g npm@latest
 COPY package*.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
@@ -13,12 +14,14 @@ RUN npm run build \
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
+RUN npm install -g npm@latest
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 RUN npx playwright install --with-deps chromium \
-  && chown -R node:node /ms-playwright
+  && chown -R node:node /ms-playwright \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
