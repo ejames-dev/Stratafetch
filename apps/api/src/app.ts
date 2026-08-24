@@ -197,8 +197,7 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
         );
       const created = await deps.operations.create("fetch", input, {
         idempotencyKey: request.headers["idempotency-key"] as
-          | string
-          | undefined,
+          string | undefined,
       });
       const operation = created.operation;
       if (!created.isNew) return reply.code(200).send({ data: operation });
