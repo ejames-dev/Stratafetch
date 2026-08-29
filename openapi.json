@@ -403,6 +403,12 @@
         "responses": { "202": { "description": "Accepted" } }
       }
     },
+    "/v1/shapes/{id}": {
+      "get": {
+        "summary": "Get a Shape operation",
+        "responses": { "200": { "description": "Successful response" } }
+      }
+    },
     "/v1/operations": {
       "get": {
         "summary": "List operations",

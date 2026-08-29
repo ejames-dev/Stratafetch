@@ -46,4 +46,10 @@ export class ShapeService {
       });
     return created.operation;
   }
+  async get(id: string) {
+    const operation = await this.operations.get(id);
+    if (!operation || operation.type !== "shape")
+      throw new AppError("Shape not found.", 404, "SHAPE_NOT_FOUND");
+    return operation;
+  }
 }

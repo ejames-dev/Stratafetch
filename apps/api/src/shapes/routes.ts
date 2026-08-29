@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { shapeRequestSchema } from "@stratafetch/contracts";
 import { ShapeService } from "./service.js";
+const params = z.object({ id: z.uuid() });
 export function registerShapeRoutes(
   app: FastifyInstance,
   service: ShapeService,
@@ -16,5 +18,12 @@ export function registerShapeRoutes(
           request.headers["idempotency-key"] as string | undefined,
         ),
       }),
+  );
+  app.get(
+    "/v1/shapes/:id",
+    { preHandler: guard("shape") as never },
+    async (request) => ({
+      data: await service.get(params.parse(request.params).id),
+    }),
   );
 }

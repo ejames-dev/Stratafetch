@@ -10,6 +10,7 @@ import {
   operationStatusSchema,
   operationTypeSchema,
 } from "@stratafetch/contracts";
+import type { ApiKeyScope, OperationType } from "@stratafetch/contracts";
 import type { AppConfig } from "./config.js";
 import { AppError } from "./errors.js";
 import { fetchDocument } from "./fetch/service.js";
@@ -43,38 +44,68 @@ export interface AppDependencies {
 export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
   const app = Fastify({ logger: { level: config.LOG_LEVEL } });
   app.register(cookie);
-  const requireScope =
-    (scope: "fetch" | "survey" | "collect" | "search" | "shape" | "admin") =>
-    async (request: FastifyRequest) => {
-      if (!deps.auth)
-        throw new AppError(
-          "Authentication is unavailable.",
-          503,
-          "AUTH_UNAVAILABLE",
-        );
-      const session = request.cookies.stratafetch_session;
-      if (deps.auth.validateSession(session)) {
-        if (request.method !== "GET" && request.method !== "HEAD") {
-          const origin = request.headers.origin;
-          if (origin && new URL(origin).host !== request.headers.host)
-            throw new AppError(
-              "Cross-origin session request rejected.",
-              403,
-              "CSRF_REJECTED",
-            );
-        }
-        return;
+  // A dashboard session grants full access; a bearer key is authorized per request.
+  type Principal = { session: true } | { session: false; token: string };
+  // An operation is readable and cancellable by a key holding the scope that
+  // matches its type, so a capability key can follow its own async work without
+  // the broad admin scope. The scope name for a collection is "collect".
+  const operationScopeByType: Record<OperationType, ApiKeyScope> = {
+    fetch: "fetch",
+    survey: "survey",
+    collection: "collect",
+    search: "search",
+    shape: "shape",
+  };
+  const authenticate = async (request: FastifyRequest): Promise<Principal> => {
+    if (!deps.auth)
+      throw new AppError(
+        "Authentication is unavailable.",
+        503,
+        "AUTH_UNAVAILABLE",
+      );
+    const session = request.cookies.stratafetch_session;
+    if (deps.auth.validateSession(session)) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        const origin = request.headers.origin;
+        if (origin && new URL(origin).host !== request.headers.host)
+          throw new AppError(
+            "Cross-origin session request rejected.",
+            403,
+            "CSRF_REJECTED",
+          );
       }
-      const authorization = request.headers.authorization;
-      if (!authorization?.startsWith("Bearer "))
-        throw new AppError("Authentication required.", 401, "AUTH_REQUIRED");
-      if (!(await deps.auth.authorize(authorization.slice(7), scope)))
+      return { session: true };
+    }
+    const authorization = request.headers.authorization;
+    if (!authorization?.startsWith("Bearer "))
+      throw new AppError("Authentication required.", 401, "AUTH_REQUIRED");
+    return { session: false, token: authorization.slice(7) };
+  };
+  const requireScope =
+    (scope: ApiKeyScope) => async (request: FastifyRequest) => {
+      const principal = await authenticate(request);
+      if (principal.session) return;
+      if (!(await deps.auth!.authorize(principal.token, scope)))
         throw new AppError(
           "The API key does not have the required scope.",
           403,
           "INSUFFICIENT_SCOPE",
         );
     };
+  const authorizeOperation = async (
+    principal: Principal,
+    type: OperationType,
+  ) => {
+    if (principal.session) return;
+    if (
+      !(await deps.auth!.authorize(principal.token, operationScopeByType[type]))
+    )
+      throw new AppError(
+        "The API key does not have the required scope.",
+        403,
+        "INSUFFICIENT_SCOPE",
+      );
+  };
   app.get("/health", async () => ({
     status: "ok",
     service: "stratafetch-api",
@@ -243,28 +274,27 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
       return deps.operations!.list(q.cursor, q.limit, q.type, q.status);
     },
   );
-  app.get(
-    "/v1/operations/:id",
-    { preHandler: requireScope("admin") },
-    async (request) => {
-      const { id } = z.object({ id: z.uuid() }).parse(request.params);
-      const item = await deps.operations!.get(id);
-      if (!item)
-        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-      return { data: item };
-    },
-  );
-  app.post(
-    "/v1/operations/:id/cancel",
-    { preHandler: requireScope("admin") },
-    async (request) => {
-      const { id } = z.object({ id: z.uuid() }).parse(request.params);
-      const item = await deps.operations!.cancel(id);
-      if (!item)
-        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-      return { data: item };
-    },
-  );
+  app.get("/v1/operations/:id", async (request) => {
+    const principal = await authenticate(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    const item = await deps.operations!.get(id);
+    if (!item)
+      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+    await authorizeOperation(principal, item.type);
+    return { data: item };
+  });
+  app.post("/v1/operations/:id/cancel", async (request) => {
+    const principal = await authenticate(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    const existing = await deps.operations!.get(id);
+    if (!existing)
+      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+    await authorizeOperation(principal, existing.type);
+    const item = await deps.operations!.cancel(id);
+    if (!item)
+      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+    return { data: item };
+  });
   app.delete(
     "/v1/operations/:id",
     { preHandler: requireScope("admin") },
@@ -275,48 +305,46 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
         ? reply.code(204).send()
         : reply.code(404).send(),
   );
-  app.get(
-    "/v1/operations/:id/export",
-    { preHandler: requireScope("admin") },
-    async (request, reply) => {
-      const { id } = z.object({ id: z.uuid() }).parse(request.params);
-      const { format } = z
-        .object({
-          format: z.enum(["json", "jsonl", "markdown"]).default("json"),
-        })
-        .parse(request.query);
-      const item = await deps.operations!.get(id);
-      if (!item)
-        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-      if (format === "jsonl") {
-        const candidate = item.result as Record<string, unknown> | null;
-        const rows = Array.isArray(item.result)
-          ? item.result
-          : candidate && Array.isArray(candidate.results)
-            ? candidate.results
-            : [item];
-        reply.type("application/x-ndjson");
-        reply.header(
-          "content-disposition",
-          `attachment; filename=stratafetch-${id}.jsonl`,
-        );
-        return `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
-      }
-      if (format === "markdown") {
-        reply.type("text/markdown; charset=utf-8");
-        reply.header(
-          "content-disposition",
-          `attachment; filename=stratafetch-${id}.md`,
-        );
-        return `# Stratafetch ${item.type} operation\n\n- ID: \`${item.id}\`\n- Status: **${item.status}**\n- Created: ${item.createdAt}\n\n## Result\n\n\`\`\`json\n${JSON.stringify(item.result, null, 2)}\n\`\`\`\n`;
-      }
+  app.get("/v1/operations/:id/export", async (request, reply) => {
+    const principal = await authenticate(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    const { format } = z
+      .object({
+        format: z.enum(["json", "jsonl", "markdown"]).default("json"),
+      })
+      .parse(request.query);
+    const item = await deps.operations!.get(id);
+    if (!item)
+      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+    await authorizeOperation(principal, item.type);
+    if (format === "jsonl") {
+      const candidate = item.result as Record<string, unknown> | null;
+      const rows = Array.isArray(item.result)
+        ? item.result
+        : candidate && Array.isArray(candidate.results)
+          ? candidate.results
+          : [item];
+      reply.type("application/x-ndjson");
       reply.header(
         "content-disposition",
-        `attachment; filename=stratafetch-${id}.json`,
+        `attachment; filename=stratafetch-${id}.jsonl`,
       );
-      return item;
-    },
-  );
+      return `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+    }
+    if (format === "markdown") {
+      reply.type("text/markdown; charset=utf-8");
+      reply.header(
+        "content-disposition",
+        `attachment; filename=stratafetch-${id}.md`,
+      );
+      return `# Stratafetch ${item.type} operation\n\n- ID: \`${item.id}\`\n- Status: **${item.status}**\n- Created: ${item.createdAt}\n\n## Result\n\n\`\`\`json\n${JSON.stringify(item.result, null, 2)}\n\`\`\`\n`;
+    }
+    reply.header(
+      "content-disposition",
+      `attachment; filename=stratafetch-${id}.json`,
+    );
+    return item;
+  });
   app.get(
     "/metrics",
     { preHandler: requireScope("admin") },

@@ -63,8 +63,10 @@ curl --request POST http://localhost:43100/v1/fetch \
 ```
 
 Survey and Collection return `202 Accepted`; poll their operation ID at
-`GET /v1/operations/{id}`. Generated OpenAPI 3.1 is available at `/openapi.json` and in
-[openapi.json](openapi.json). See [the API guide](docs/api.md) for the complete contract.
+`GET /v1/operations/{id}` with the same capability key that submitted the work (the
+`survey` and `collect` scopes above), or an admin key. Generated OpenAPI 3.1 is available
+at `/openapi.json` and in [openapi.json](openapi.json). See [the API guide](docs/api.md)
+for the complete contract.
 
 ## Development
 
