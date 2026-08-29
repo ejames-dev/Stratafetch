@@ -15,8 +15,7 @@ export function registerSearchRoutes(
       const input = searchRequestSchema.parse(request.body);
       const created = await operations.create("search", input, {
         idempotencyKey: request.headers["idempotency-key"] as
-          | string
-          | undefined,
+          string | undefined,
         provider: "brave",
       });
       const operation = created.operation;
