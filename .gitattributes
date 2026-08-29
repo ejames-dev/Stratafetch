@@ -1,0 +1,15 @@
+# Normalize every text file to LF in the repository and in the working tree.
+# Without this, a contributor with core.autocrlf=true checks out CRLF and
+# `npm run format:check` fails on every file, since Prettier defaults to
+# endOfLine: "lf". This matches .editorconfig's `end_of_line = lf`.
+* text=auto eol=lf
+
+# Binary assets: never convert.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
