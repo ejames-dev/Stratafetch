@@ -40,8 +40,13 @@ Other capabilities remain usable.
 ## Idempotency and pagination
 
 Send `Idempotency-Key` on mutating requests. Reusing a key with an identical request
-returns the original operation; reusing it with different input is rejected. Generate a
-new opaque key for genuinely new work.
+replays the original response in the same envelope the first call returned — a fetch
+replay carries the top-level `operationId` and `data` outputs, and a search replay carries
+`data.operationId` and `data.results` — so a client can treat a replay exactly like a
+first response. If the original request failed, the replay re-raises that stored error; if
+it is still in progress, the replay returns `409 IDEMPOTENCY_IN_PROGRESS`. Reusing a key
+with different input is rejected with `409 IDEMPOTENCY_CONFLICT`. Generate a new opaque key
+for genuinely new work.
 
 List endpoints use opaque cursor pagination. Follow the returned `nextCursor`; do not
 parse or construct cursors. Stored content expires 30 days after creation by default.

@@ -145,3 +145,103 @@ describe("operation scope authorization", () => {
     expect(response.statusCode).toBe(403);
   });
 });
+
+// A repository whose `create` always replays `operation` instead of inserting.
+const replaying = (operation: Record<string, unknown>) =>
+  ({ create: async () => ({ operation, isNew: false }) }) as never;
+const robots = { assertAllowed: async () => true } as never;
+const brave = { configured: true, search: async () => [] } as never;
+
+describe("idempotent replay envelope", () => {
+  it("replays a fetch in the same shape as the original response", async () => {
+    const result = {
+      source: {
+        requestedUrl: "https://example.org",
+        resolvedUrl: "https://example.org/",
+        status: 200,
+        contentType: "text/html",
+        robotsAllowed: true,
+      },
+      content: { markdown: "# Example" },
+      retrieval: {
+        mode: "http",
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+        durationMs: 5,
+      },
+    };
+    const app = buildApp(config, {
+      auth: scopedAuth(["fetch"]),
+      robots,
+      operations: replaying({
+        id: operationId,
+        type: "fetch",
+        status: "completed",
+        result,
+      }),
+    });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/fetch",
+      headers: { authorization: "Bearer fetch-key", "idempotency-key": "k1" },
+      payload: { url: "https://example.org" },
+    });
+    expect(response.statusCode).toBe(200);
+    // Same envelope as a fresh fetch: top-level operationId, data holding the outputs.
+    expect(response.json()).toEqual({ operationId, data: result });
+  });
+
+  it("replays a search in the same shape as the original response", async () => {
+    const results = [
+      {
+        rank: 1,
+        title: "Example",
+        url: "https://example.org",
+        description: "",
+        provider: "brave",
+      },
+    ];
+    const app = buildApp(config, {
+      auth: scopedAuth(["search"]),
+      brave,
+      operations: replaying({
+        id: operationId,
+        type: "search",
+        status: "completed",
+        result: { results },
+      }),
+    });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/search",
+      headers: { authorization: "Bearer search-key", "idempotency-key": "k2" },
+      payload: { query: "example" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { operationId, results } });
+  });
+
+  it("re-raises the stored error when replaying a failed operation", async () => {
+    const app = buildApp(config, {
+      auth: scopedAuth(["fetch"]),
+      robots,
+      operations: replaying({
+        id: operationId,
+        type: "fetch",
+        status: "failed",
+        result: null,
+        error: { code: "FETCH_FAILED", message: "Upstream refused." },
+      }),
+    });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/fetch",
+      headers: { authorization: "Bearer fetch-key", "idempotency-key": "k3" },
+      payload: { url: "https://example.org" },
+    });
+    expect(response.statusCode).toBe(502);
+    expect(response.json().error.code).toBe("FETCH_FAILED");
+  });
+});

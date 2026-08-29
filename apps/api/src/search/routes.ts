@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { searchRequestSchema } from "@stratafetch/contracts";
 import type { OperationRepository } from "../operations/repository.js";
+import { replayEnvelope } from "../operations/replay.js";
 import type { BraveSearchProvider } from "../providers/brave.js";
 export function registerSearchRoutes(
   app: FastifyInstance,
@@ -19,7 +20,13 @@ export function registerSearchRoutes(
         provider: "brave",
       });
       const operation = created.operation;
-      if (!created.isNew) return { data: operation };
+      if (!created.isNew)
+        return replayEnvelope(operation, (result) => ({
+          data: {
+            operationId: operation.id,
+            ...(result as Record<string, unknown>),
+          },
+        }));
       await operations.markRunning(operation.id);
       try {
         const results = await provider.search(input);

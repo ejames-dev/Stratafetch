@@ -27,6 +27,7 @@ import type { RobotsService } from "./robots/service.js";
 import type { BraveSearchProvider } from "./providers/brave.js";
 import type { OpenAIShapeProvider } from "./providers/openai.js";
 import type { DatabasePool } from "./database/pool.js";
+import { replayEnvelope } from "./operations/replay.js";
 import { buildOpenApi } from "./openapi.js";
 
 export interface AppDependencies {
@@ -231,7 +232,13 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
           string | undefined,
       });
       const operation = created.operation;
-      if (!created.isNew) return reply.code(200).send({ data: operation });
+      if (!created.isNew)
+        return reply.code(200).send(
+          replayEnvelope(operation, (result) => ({
+            operationId: operation.id,
+            data: result,
+          })),
+        );
       await deps.operations.markRunning(operation.id);
       try {
         const robotsAllowed = await deps.robots.assertAllowed(
