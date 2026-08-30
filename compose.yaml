@@ -12,11 +12,8 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       ALLOW_ROBOTS_OVERRIDE: ${ALLOW_ROBOTS_OVERRIDE:-false}
       EGRESS_PROXY_URL: http://egress:3128
-      HTTP_PROXY: http://egress:3128
-      HTTPS_PROXY: http://egress:3128
-      NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker
-      NODE_USE_ENV_PROXY: "1"
     networks: [core]
+    security_opt: [no-new-privileges:true]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -32,6 +29,7 @@ services:
       HTTP_CONCURRENCY: 8
       BROWSER_CONCURRENCY: 2
     networks: [core]
+    security_opt: [no-new-privileges:true]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -42,6 +40,13 @@ services:
       context: .
       dockerfile: Dockerfile.egress
     networks: [core, edge]
+    read_only: true
+    tmpfs:
+      - /var/log/squid:mode=1777
+      - /var/run:mode=1777
+      - /var/spool/squid:mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "3128"]
       interval: 10s
@@ -55,6 +60,7 @@ services:
     ports:
       - "${STRATAFETCH_PORT:-43100}:43100"
     networks: [core, edge]
+    security_opt: [no-new-privileges:true]
     depends_on:
       - api
     healthcheck:

@@ -1,9 +1,35 @@
+import { ProxyAgent, type Dispatcher } from "undici";
 import { AppError } from "../errors.js";
 import {
   assertSafeHttpUrl,
   type AddressResolver,
 } from "../security/url-policy.js";
 import type { RetrievedDocument } from "./types.js";
+
+// Node's global fetch only honors HTTP_PROXY/HTTPS_PROXY when opted in via
+// NODE_USE_ENV_PROXY, and undici's EnvHttpProxyAgent (still experimental as
+// of undici 6.28 / Node 22) never actually reaches the proxy for plain
+// http:// targets — the request just hangs until the caller's own timeout
+// fires. Confirmed empirically against the pinned node:22-bookworm-slim
+// runtime: https:// tunnels via CONNECT correctly, http:// does not.
+// Building the dispatcher explicitly (the same "configure it directly,
+// don't rely on ambient env vars" approach browser-retriever.ts already
+// uses for Playwright) works for both schemes.
+const dispatcherCache = new Map<string, Dispatcher>();
+
+function dispatcherFor(proxyUrl: string | undefined): Dispatcher | undefined {
+  if (!proxyUrl) return undefined;
+  const cached = dispatcherCache.get(proxyUrl);
+  if (cached) return cached;
+  const dispatcher = new ProxyAgent(proxyUrl);
+  dispatcherCache.set(proxyUrl, dispatcher);
+  return dispatcher;
+}
+
+// Node's global fetch() accepts a `dispatcher` option at runtime (it's
+// undici underneath), but the ambient RequestInit type doesn't declare it.
+// This is a known typing gap, not a real mismatch.
+type FetchInitWithDispatcher = RequestInit & { dispatcher?: Dispatcher };
 
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
@@ -43,21 +69,25 @@ export async function retrieveWithHttp(options: {
   timeoutMs: number;
   maxBytes: number;
   resolver?: AddressResolver;
+  proxyUrl?: string;
 }): Promise<RetrievedDocument> {
   const requestedUrl = options.url;
   let currentUrl = await assertSafeHttpUrl(options.url, options.resolver);
+  const dispatcher = dispatcherFor(options.proxyUrl);
 
   for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
-    const response = await fetch(currentUrl, {
+    const init: FetchInitWithDispatcher = {
       redirect: "manual",
       signal: AbortSignal.timeout(options.timeoutMs),
+      ...(dispatcher ? { dispatcher } : {}),
       headers: {
         accept:
           "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.1",
         "user-agent":
           "Stratafetch/0.1 (+https://github.com/ejames-dev/Stratafetch)",
       },
-    });
+    };
+    const response = await fetch(currentUrl, init);
 
     if (redirectStatuses.has(response.status)) {
       const location = response.headers.get("location");

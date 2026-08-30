@@ -1,6 +1,18 @@
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends squid ca-certificates netcat-openbsd \
+# Digest-pinned to match the SHA-pinning discipline compose.release.yaml
+# already requires for postgres/redis, and the squid/ca-certificates/
+# netcat-openbsd versions below are pinned to what that exact digest
+# resolves today (verified: `apt-cache policy` against this image).
+FROM debian:bookworm-slim@sha256:5ae3c39ebd15e229dcedd5cee596b2497182493d41ff162e824ba13fc1b2b867
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  squid=5.7-2+deb12u6 \
+  ca-certificates=20250419~deb12u1 \
+  netcat-openbsd=1.219-1 \
   && rm -rf /var/lib/apt/lists/*
 COPY infra/egress/squid.conf /etc/squid/squid.conf
 EXPOSE 3128
+# The squid package's own "proxy" user already owns /var/log/squid and
+# /var/spool/squid. http_port 3128 is unprivileged, so squid never needs
+# root to bind it — run as proxy directly instead of starting as root and
+# relying on squid's own setuid drop.
+USER proxy
 CMD ["squid", "-N", "-f", "/etc/squid/squid.conf"]
