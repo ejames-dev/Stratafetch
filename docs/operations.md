@@ -20,8 +20,11 @@ cosign verify \
 
 Create a protected environment file with unique database credentials and at least 32
 random bytes for `STRATAFETCH_ADMIN_TOKEN`. Add `BRAVE_SEARCH_API_KEY` and
-`OPENAI_API_KEY` only when those capabilities are required. Bind the application to a
-private interface or place it behind a TLS reverse proxy.
+`OPENAI_API_KEY` only when those capabilities are required. Set `SENTRY_DSN`
+(API) and `VITE_SENTRY_DSN` (dashboard, baked in at build time) to report
+unhandled errors to Sentry; leave them unset to disable error reporting. Bind
+the application to a private interface or place it behind a TLS reverse
+proxy.
 
 ```bash
 docker compose --env-file .env -f stratafetch-compose.yaml up -d

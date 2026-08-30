@@ -5,6 +5,12 @@ All notable changes to Stratafetch are documented here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- Sentry error tracking for the API (`SENTRY_DSN`) and dashboard
+  (`VITE_SENTRY_DSN`), disabled by default and opt-in via environment
+  variables.
+
 ## [1.0.0-alpha.2] - 2026-08-24
 
 ### Added
