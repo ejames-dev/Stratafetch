@@ -170,7 +170,10 @@ jobs:
           STRATAFETCH_EGRESS_IMAGE: ${{ steps.image.outputs.name }}-egress@${{ steps.egress-build.outputs.digest }}
           STRATAFETCH_INGRESS_IMAGE: ${{ steps.image.outputs.name }}-ingress@${{ steps.ingress-build.outputs.digest }}
         run: |
-          docker compose -f compose.yaml -f compose.release.yaml config --no-interpolate > stratafetch-compose.yaml
+          # --format json avoids YAML line-folding on the long ${VAR:?err} placeholders below,
+          # which otherwise breaks the single-line sed/grep matches. JSON is valid YAML, so the
+          # output still works as a Compose file.
+          docker compose -f compose.yaml -f compose.release.yaml config --no-interpolate --format json > stratafetch-compose.yaml
           escaped_image="$(printf '%s' "$STRATAFETCH_IMAGE" | sed 's/[&|]/\\&/g')"
           sed -i 's|${STRATAFETCH_IMAGE:?Set STRATAFETCH_IMAGE to a signed GHCR digest}|'"$escaped_image"'|g' stratafetch-compose.yaml
           escaped_egress_image="$(printf '%s' "$STRATAFETCH_EGRESS_IMAGE" | sed 's/[&|]/\\&/g')"

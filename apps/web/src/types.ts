@@ -1,16 +1,8 @@
 export type OperationStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "queued" | "running" | "completed" | "failed" | "cancelled";
 export type Capability = "fetch" | "survey" | "collect" | "search" | "shape";
 export type OperationType =
-  | "fetch"
-  | "survey"
-  | "collection"
-  | "search"
-  | "shape";
+  "fetch" | "survey" | "collection" | "search" | "shape";
 
 export interface Operation {
   id: string;
