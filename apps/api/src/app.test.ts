@@ -27,7 +27,7 @@ describe("API", () => {
     expect(response.json()).toMatchObject({
       status: "ok",
       service: "stratafetch-api",
-      version: "1.0.0-alpha.1",
+      version: "1.0.0-alpha.2",
     });
   });
   it("requires authentication", async () => {

@@ -28,9 +28,17 @@ pull requests.
 1. Branch from the latest `main`.
 2. Add tests for behavioral changes and append-only migrations for schema changes.
 3. Run `npm run check` and `docker compose config --quiet`.
-4. Update the OpenAPI document and relevant operator documentation when a public
+4. Changing the egress path — `Dockerfile.egress`, `infra/egress/squid.conf`,
+   `compose.yaml` network/proxy settings, or anything under `apps/api/src/fetch/` or
+   `apps/api/src/security/` — also run `./scripts/verify-egress.sh`. It builds the real
+   stack and probes it from inside the `worker` container (network segmentation, Squid's
+   ACLs, and an actual proxied fetch), not just unit tests against mocks. It needs a host
+   with real internet egress for a full pass; a restricted network reports the
+   internet-reaching checks as skipped rather than failed, with an explanation. CI
+   (`.github/workflows/security.yml`) runs it on every push and PR.
+5. Update the OpenAPI document and relevant operator documentation when a public
    contract changes.
-5. Describe validation performed and any remaining platform or security risk.
+6. Describe validation performed and any remaining platform or security risk.
 
 Public API compatibility is required after 1.0. Breaking `/v1` changes need a new API
 version and a documented migration path. Generated artifacts must be reproducible from
