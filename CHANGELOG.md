@@ -7,6 +7,14 @@ All notable changes to Stratafetch are documented here. The project follows
 
 ### Added
 
+- Sentry error tracking for the API (`SENTRY_DSN`) and dashboard
+  (`VITE_SENTRY_DSN`), disabled by default and opt-in via environment
+  variables.
+
+## [1.0.0-alpha.2] - 2026-08-24
+
+### Added
+
 - The authenticated `/v1` API for Fetch, Survey, Collection, Search, and Shape.
 - Durable operations, scoped and revocable API keys, idempotent job submission,
   cancellation, exports, and configurable content retention.
@@ -28,5 +36,9 @@ All notable changes to Stratafetch are documented here. The project follows
 - Added robots.txt enforcement, per-host throttling, private-network and metadata
   blocking, credential-safe logging, scoped bearer authentication, and secure
   dashboard sessions.
+- Rebuilt the ingress image on a current `nginx:alpine` base to clear fixed
+  CRITICAL/HIGH CVEs in stale Alpine packages carried by the abandoned `1.27-alpine`
+  tag.
 
-[Unreleased]: https://github.com/ejames-dev/Stratafetch/commits/main
+[Unreleased]: https://github.com/ejames-dev/Stratafetch/compare/v1.0.0-alpha.2...main
+[1.0.0-alpha.2]: https://github.com/ejames-dev/Stratafetch/commits/v1.0.0-alpha.2

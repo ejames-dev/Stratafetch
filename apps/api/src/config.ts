@@ -25,6 +25,7 @@ const configSchema = z.object({
   BRAVE_SEARCH_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
+  SENTRY_DSN: z.string().optional(),
   HTTP_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(8),
   BROWSER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   PER_HOST_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(1_000),

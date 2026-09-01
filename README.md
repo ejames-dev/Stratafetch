@@ -2,7 +2,7 @@
 
 Stratafetch is a self-hosted web-data platform for discovering public URLs, retrieving
 HTML and PDFs, searching the web, and transforming stored content into validated JSON.
-The current package version is `1.0.0-alpha.1`; the API is being exercised against the
+The current package version is `1.0.0-alpha.2`; the API is being exercised against the
 1.0 contract, but this is not a GA release.
 
 ## Included capabilities

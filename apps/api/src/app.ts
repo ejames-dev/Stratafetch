@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
+import * as Sentry from "@sentry/node";
 import Fastify, { type FastifyRequest } from "fastify";
 import { ZodError, z } from "zod";
 import {
@@ -78,7 +79,7 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "stratafetch-api",
-    version: "1.0.0-alpha.1",
+    version: "1.0.0-alpha.2",
   }));
   app.get("/health/ready", async (_req, reply) => {
     try {
@@ -364,6 +365,7 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
         .code(error.statusCode)
         .send({ error: { code: error.code, message: error.message } });
     app.log.error(error);
+    Sentry.captureException(error);
     return reply.code(500).send({
       error: {
         code: "INTERNAL_ERROR",
