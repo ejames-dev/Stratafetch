@@ -14,10 +14,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@stratafetch/contracts": "*",
     "@fastify/cookie": "11.1.1",
+    "@fastify/rate-limit": "^11.2.0",
     "@fastify/static": "10.1.2",
     "@sentry/node": "10.72.0",
+    "@stratafetch/contracts": "*",
     "ajv": "8.20.0",
     "bullmq": "5.80.2",
     "cheerio": "1.2.0",

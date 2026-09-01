@@ -128,6 +128,9 @@ export function buildOpenApi() {
           responses: { "202": accepted },
         },
       },
+      "/v1/shapes/{id}": {
+        get: { summary: "Get a Shape operation", responses: { "200": ok } },
+      },
       "/v1/operations": {
         get: { summary: "List operations", responses: { "200": ok } },
       },

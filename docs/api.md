@@ -15,6 +15,12 @@ Keys have one or more of `fetch`, `survey`, `collect`, `search`, `shape`, and `a
 A missing or insufficient scope returns `401` or `403` without revealing whether a
 resource exists. Keys are returned only when created and are stored as hashes.
 
+A capability scope can read, export, and cancel the operations of its own type: a
+`shape` key reads Shape operations, a `collect` key reads Collection operations, and so
+on. Cross-cutting administration — listing every operation, deleting operations, managing
+keys, and reading metrics — still requires the `admin` scope. A dashboard session has
+full access.
+
 Errors use a stable envelope:
 
 ```json
@@ -55,19 +61,21 @@ Operation metadata remains until explicitly deleted.
   not fetch result pages.
 - `POST /v1/shapes` queues OpenAI transformation from persisted or bounded inline
   content. Output is checked against JSON Schema Draft 2020-12, with at most two repair
-  attempts.
+  attempts. `GET /v1/shapes/{id}` returns the Shape operation for the issuing `shape` key.
 
-Asynchronous submission returns `202 Accepted` and an operation identifier. Use the
-operation endpoints for progress, cancellation, deletion, and exports. Cancellation is
-cooperative: already-running network work may finish, but no new units are scheduled.
+Asynchronous submission returns `202 Accepted` and an operation identifier. Poll progress
+with `GET /v1/operations/{id}`, cancel with `POST /v1/operations/{id}/cancel`, and export
+with `GET /v1/operations/{id}/export` — each usable with the capability key that created
+the work, or an admin key. Cancellation is cooperative: already-running network work may
+finish, but no new units are scheduled.
 
 ## Operations and administration
 
-The API exposes operation list/detail, paginated results, export, cancellation, and
-deletion endpoints, plus admin-scoped API-key management. Readiness and metrics
-endpoints are intended for orchestration and monitoring. The dashboard bootstraps with
-`STRATAFETCH_ADMIN_TOKEN`, exchanges it for a secure HTTP-only same-origin session, and
-never reads provider secrets.
+The API exposes operation detail, paginated results, export, and cancellation to the
+capability key that created each operation. Listing every operation (`GET /v1/operations`),
+deleting operations, API-key management, and metrics remain admin-scoped. The dashboard
+bootstraps with `STRATAFETCH_ADMIN_TOKEN`, exchanges it for a secure HTTP-only
+same-origin session, and never reads provider secrets.
 
 Exports support JSON, JSONL, and Markdown where the underlying result has a meaningful
 Markdown representation. Consumers must tolerate an item-level failure within a

@@ -39,7 +39,7 @@ it was rejected). `npm ci` now validates the lockfile, installs `canvas-win32-x6
 and `npm run check` exits 0 on Windows with all 27 tests passing. A `cross-platform` CI
 job (`windows-latest`, `macos-latest`) was added to guard against regression.
 
-## 1. Align the scope model with the documented flow — `todo`
+## 1. Align the scope model with the documented flow — `done`
 
 A `shape`-scoped key can queue work it can never read. `POST /v1/shapes` returns `202`
 and there is no `GET /v1/shapes/{id}`; the only way to reach the result is
@@ -51,6 +51,14 @@ to poll `/v1/operations/{id}`, which returns `403 INSUFFICIENT_SCOPE`.
   `admin` for every read.
 - Add `GET /v1/shapes/{id}` for parity with Survey and Collection.
 - Update `README.md` and `docs/api.md` to match whatever rule is chosen.
+
+**Resolved 2026-08-29.** Authorization for `GET /v1/operations/{id}`, its `/export`, and
+`/cancel` is now per-operation-type: a key holding the scope that matches the operation's
+type (with `collection` → `collect`) may read, export, and cancel it, so a capability key
+can follow its own async work. Cross-cutting actions — the `GET /v1/operations` list,
+delete, key management, and `/metrics` — stay `admin`. A new `GET /v1/shapes/{id}` gives
+Shape the same typed read endpoint Survey and Collection already had. README, docs/api.md,
+and the generated OpenAPI were updated to match; five authorization tests were added.
 
 ## 2. Normalize the idempotent-replay envelope — `todo`
 
