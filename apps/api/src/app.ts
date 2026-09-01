@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
+import * as Sentry from "@sentry/node";
 import Fastify, { type FastifyRequest } from "fastify";
 import { ZodError, z } from "zod";
 import {
@@ -45,6 +47,10 @@ export interface AppDependencies {
 export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
   const app = Fastify({ logger: { level: config.LOG_LEVEL } });
   app.register(cookie);
+  // Applied per-route below via `config.rateLimit`; a key-scoped caller can now
+  // read, export, and cancel its own operations, so those routes need their own
+  // throttle rather than relying on the admin-only routes' obscurity.
+  app.register(rateLimit, { global: false });
   // A dashboard session grants full access; a bearer key is authorized per request.
   type Principal = { session: true } | { session: false; token: string };
   // An operation is readable and cancellable by a key holding the scope that
@@ -110,7 +116,7 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "stratafetch-api",
-    version: "1.0.0-alpha.1",
+    version: "1.0.0-alpha.2",
   }));
   app.get("/health/ready", async (_req, reply) => {
     try {
@@ -281,27 +287,35 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
       return deps.operations!.list(q.cursor, q.limit, q.type, q.status);
     },
   );
-  app.get("/v1/operations/:id", async (request) => {
-    const principal = await authenticate(request);
-    const { id } = z.object({ id: z.uuid() }).parse(request.params);
-    const item = await deps.operations!.get(id);
-    if (!item)
-      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-    await authorizeOperation(principal, item.type);
-    return { data: item };
-  });
-  app.post("/v1/operations/:id/cancel", async (request) => {
-    const principal = await authenticate(request);
-    const { id } = z.object({ id: z.uuid() }).parse(request.params);
-    const existing = await deps.operations!.get(id);
-    if (!existing)
-      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-    await authorizeOperation(principal, existing.type);
-    const item = await deps.operations!.cancel(id);
-    if (!item)
-      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-    return { data: item };
-  });
+  app.get(
+    "/v1/operations/:id",
+    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    async (request) => {
+      const principal = await authenticate(request);
+      const { id } = z.object({ id: z.uuid() }).parse(request.params);
+      const item = await deps.operations!.get(id);
+      if (!item)
+        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+      await authorizeOperation(principal, item.type);
+      return { data: item };
+    },
+  );
+  app.post(
+    "/v1/operations/:id/cancel",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request) => {
+      const principal = await authenticate(request);
+      const { id } = z.object({ id: z.uuid() }).parse(request.params);
+      const existing = await deps.operations!.get(id);
+      if (!existing)
+        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+      await authorizeOperation(principal, existing.type);
+      const item = await deps.operations!.cancel(id);
+      if (!item)
+        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+      return { data: item };
+    },
+  );
   app.delete(
     "/v1/operations/:id",
     { preHandler: requireScope("admin") },
@@ -312,46 +326,50 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
         ? reply.code(204).send()
         : reply.code(404).send(),
   );
-  app.get("/v1/operations/:id/export", async (request, reply) => {
-    const principal = await authenticate(request);
-    const { id } = z.object({ id: z.uuid() }).parse(request.params);
-    const { format } = z
-      .object({
-        format: z.enum(["json", "jsonl", "markdown"]).default("json"),
-      })
-      .parse(request.query);
-    const item = await deps.operations!.get(id);
-    if (!item)
-      throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
-    await authorizeOperation(principal, item.type);
-    if (format === "jsonl") {
-      const candidate = item.result as Record<string, unknown> | null;
-      const rows = Array.isArray(item.result)
-        ? item.result
-        : candidate && Array.isArray(candidate.results)
-          ? candidate.results
-          : [item];
-      reply.type("application/x-ndjson");
+  app.get(
+    "/v1/operations/:id/export",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const principal = await authenticate(request);
+      const { id } = z.object({ id: z.uuid() }).parse(request.params);
+      const { format } = z
+        .object({
+          format: z.enum(["json", "jsonl", "markdown"]).default("json"),
+        })
+        .parse(request.query);
+      const item = await deps.operations!.get(id);
+      if (!item)
+        throw new AppError("Operation not found.", 404, "OPERATION_NOT_FOUND");
+      await authorizeOperation(principal, item.type);
+      if (format === "jsonl") {
+        const candidate = item.result as Record<string, unknown> | null;
+        const rows = Array.isArray(item.result)
+          ? item.result
+          : candidate && Array.isArray(candidate.results)
+            ? candidate.results
+            : [item];
+        reply.type("application/x-ndjson");
+        reply.header(
+          "content-disposition",
+          `attachment; filename=stratafetch-${id}.jsonl`,
+        );
+        return `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+      }
+      if (format === "markdown") {
+        reply.type("text/markdown; charset=utf-8");
+        reply.header(
+          "content-disposition",
+          `attachment; filename=stratafetch-${id}.md`,
+        );
+        return `# Stratafetch ${item.type} operation\n\n- ID: \`${item.id}\`\n- Status: **${item.status}**\n- Created: ${item.createdAt}\n\n## Result\n\n\`\`\`json\n${JSON.stringify(item.result, null, 2)}\n\`\`\`\n`;
+      }
       reply.header(
         "content-disposition",
-        `attachment; filename=stratafetch-${id}.jsonl`,
+        `attachment; filename=stratafetch-${id}.json`,
       );
-      return `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
-    }
-    if (format === "markdown") {
-      reply.type("text/markdown; charset=utf-8");
-      reply.header(
-        "content-disposition",
-        `attachment; filename=stratafetch-${id}.md`,
-      );
-      return `# Stratafetch ${item.type} operation\n\n- ID: \`${item.id}\`\n- Status: **${item.status}**\n- Created: ${item.createdAt}\n\n## Result\n\n\`\`\`json\n${JSON.stringify(item.result, null, 2)}\n\`\`\`\n`;
-    }
-    reply.header(
-      "content-disposition",
-      `attachment; filename=stratafetch-${id}.json`,
-    );
-    return item;
-  });
+      return item;
+    },
+  );
   app.get(
     "/metrics",
     { preHandler: requireScope("admin") },
@@ -399,6 +417,7 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
         .code(error.statusCode)
         .send({ error: { code: error.code, message: error.message } });
     app.log.error(error);
+    Sentry.captureException(error);
     return reply.code(500).send({
       error: {
         code: "INTERNAL_ERROR",

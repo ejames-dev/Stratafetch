@@ -21,7 +21,7 @@ export function buildOpenApi() {
     openapi: "3.1.0",
     info: {
       title: "Stratafetch API",
-      version: "1.0.0-alpha.1",
+      version: "1.0.0-alpha.2",
       description: "Self-hosted web data operations API",
     },
     servers: [{ url: "/" }],

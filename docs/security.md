@@ -12,8 +12,10 @@ access as permission to consume network, browser, storage, and paid-provider res
 - Route all HTTP and browser traffic through the controlled egress path. Deny direct
   worker internet access and all access to loopback, RFC1918/private, link-local,
   multicast, IPv4-mapped IPv6, cloud metadata, and internal DNS destinations.
-- Re-resolve and validate every redirect and browser subrequest. Pin the validated public
-  address for the connection to reduce DNS-rebinding exposure.
+- Re-resolve and validate every redirect and browser subrequest at the application layer.
+  On the proxied path, the egress service resolves and connects to the target itself and
+  evaluates its IP-range rules against that resolved address — this, not application-layer
+  address pinning, is what closes DNS-rebinding exposure for proxied requests.
 - Enforce robots.txt by default and rate-limit each host. Ignoring robots requires both
   an operator setting and an explicit request; it does not override applicable law or a
   site's terms.

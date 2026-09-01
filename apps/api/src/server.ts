@@ -1,3 +1,5 @@
+import "./instrument.js";
+import * as Sentry from "@sentry/node";
 import { buildApp } from "./app.js";
 import { AuthService } from "./auth/service.js";
 import { PostgresCollectionRepository } from "./collections/repository.js";
@@ -58,6 +60,7 @@ try {
   await app.listen({ host: config.HOST, port: config.PORT });
 } catch (error) {
   app.log.error(error);
+  Sentry.captureException(error);
   await app.close();
   process.exitCode = 1;
 }

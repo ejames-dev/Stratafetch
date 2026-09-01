@@ -20,6 +20,7 @@ export async function fetchDocument(
           url: request.url,
           timeoutMs: request.timeoutMs,
           maxBytes,
+          ...(proxyUrl ? { proxyUrl } : {}),
         });
   const content = await extractContent(retrieved, request.outputs);
 
