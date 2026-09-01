@@ -37,6 +37,24 @@ jobs:
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.release.yaml config --quiet
 
+  cross-platform:
+    name: cross-platform (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
   compose-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
