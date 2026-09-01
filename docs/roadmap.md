@@ -60,7 +60,7 @@ delete, key management, and `/metrics` — stay `admin`. A new `GET /v1/shapes/{
 Shape the same typed read endpoint Survey and Collection already had. README, docs/api.md,
 and the generated OpenAPI were updated to match; five authorization tests were added.
 
-## 2. Normalize the idempotent-replay envelope — `todo`
+## 2. Normalize the idempotent-replay envelope — `done`
 
 `POST /v1/fetch` and `POST /v1/search` return two different body shapes for the same
 endpoint. A fresh request returns `{operationId, data: {source, content, retrieval}}`; an
@@ -68,6 +68,14 @@ endpoint. A fresh request returns `{operationId, data: {source, content, retriev
 request it already made gets a structurally different response.
 
 Replay should return the stored result in the same envelope as the original.
+
+**Resolved 2026-08-29.** A shared `replayEnvelope` helper (`apps/api/src/operations/
+replay.ts`) rebuilds each endpoint's success envelope from the stored operation: a fetch
+replay returns `{operationId, data}` and a search replay returns
+`{data: {operationId, results}}`, matching the fresh responses. A replay of a failed
+original re-raises its stored error (`502`), and a replay that races an unfinished original
+returns `409 IDEMPOTENCY_IN_PROGRESS`. Covered by three tests in `app.test.ts`; `docs/api.md`
+updated.
 
 ## 3. Harden and prove the egress path — `todo`
 
