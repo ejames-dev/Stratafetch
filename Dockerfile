@@ -1,4 +1,7 @@
-FROM node:22-bookworm-slim AS build
+# Digest-pinned to match the SHA-pinning discipline Dockerfile.egress and
+# Dockerfile.ingress already use, so a registry-side retag can't silently
+# change what ships.
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS build
 WORKDIR /app
 RUN npm install -g npm@latest
 COPY package*.json ./
@@ -12,7 +15,7 @@ COPY packages ./packages
 RUN npm run build \
   && npm prune --omit=dev
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
 ENV NODE_ENV=production
 RUN npm install -g npm@latest
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright

@@ -1,20 +1,44 @@
 import { lookup as nodeLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import ipaddr from "ipaddr.js";
+import { ProxyAgent, type Dispatcher } from "undici";
 import { AppError } from "../errors.js";
 
 export type AddressResolver = (hostname: string) => Promise<string[]>;
 
-async function resolveOverHttps(hostname: string): Promise<string[]> {
+// api/worker sit on the compose deployment's internal-only network: the only
+// route out is through the egress proxy. node:dns correctly fails there
+// (EAI_AGAIN) and falls through to this DNS-over-HTTPS fallback, but a plain
+// fetch() has no route either — it needs the same explicit ProxyAgent
+// dispatcher http-retriever.ts already builds for the same reason, or this
+// fallback fails silently too and every real hostname 404s on
+// DNS_RESOLUTION_FAILED.
+const dispatcherCache = new Map<string, Dispatcher>();
+
+function dispatcherFor(proxyUrl: string | undefined): Dispatcher | undefined {
+  if (!proxyUrl) return undefined;
+  const cached = dispatcherCache.get(proxyUrl);
+  if (cached) return cached;
+  const dispatcher = new ProxyAgent(proxyUrl);
+  dispatcherCache.set(proxyUrl, dispatcher);
+  return dispatcher;
+}
+
+type FetchInitWithDispatcher = RequestInit & { dispatcher?: Dispatcher };
+
+export async function resolveOverHttps(hostname: string): Promise<string[]> {
+  const dispatcher = dispatcherFor(process.env.EGRESS_PROXY_URL);
   const responses = await Promise.all(
     ["A", "AAAA"].map(async (type) => {
       const endpoint = new URL("https://1.1.1.1/dns-query");
       endpoint.searchParams.set("name", hostname);
       endpoint.searchParams.set("type", type);
-      const response = await fetch(endpoint, {
+      const init: FetchInitWithDispatcher = {
         headers: { accept: "application/dns-json" },
         signal: AbortSignal.timeout(5_000),
-      });
+        ...(dispatcher ? { dispatcher } : {}),
+      };
+      const response = await fetch(endpoint, init);
       if (!response.ok) return [];
       const body = (await response.json()) as {
         Answer?: Array<{ type: number; data: string }>;

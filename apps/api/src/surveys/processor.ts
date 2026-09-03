@@ -5,6 +5,7 @@ import type {
 } from "@stratafetch/contracts";
 import type { OperationRepository } from "../operations/repository.js";
 import type { RobotsService } from "../robots/service.js";
+import { assertSafeHttpUrl } from "../security/url-policy.js";
 import { SurveyRepository } from "./repository.js";
 type Fetcher = (
   request: FetchRequest,
@@ -56,6 +57,7 @@ export async function processSurvey(options: {
   try {
     try {
       const sitemapUrl = new URL("/sitemap.xml", seed.origin);
+      await assertSafeHttpUrl(sitemapUrl.href);
       const response = await fetch(sitemapUrl, {
         signal: AbortSignal.timeout(10_000),
       });
