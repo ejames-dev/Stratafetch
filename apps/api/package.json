@@ -11,6 +11,7 @@
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "test": "vitest run src",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

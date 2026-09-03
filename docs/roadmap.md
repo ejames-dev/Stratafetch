@@ -109,14 +109,25 @@ one outbound call in the codebase not preceded by `assertSafeHttpUrl` — fixed 
 (`apps/api/src/robots/service.test.ts`, PR #15) covering group merging, wildcards,
 anchors, longest-match precedence, and `Crawl-delay`/`Sitemap:` directives.
 
-## 5. Backfill tests — `todo`
+## 5. Backfill tests — `in progress`
 
-Untested: the auth service, `OperationRepository` (the idempotency replay/conflict SQL
-is subtle), the survey processor, the shape processor, content extraction, parts of
-`http-retriever` (redirect-limit exhaustion, missing `Location` header, body size cap),
-and the migration runner. `App.tsx` is 1,699 lines behind one smoke test. Prefer a
-Postgres service container so migrations are exercised too. Robots parsing (item 4) and
-the redirect-chain SSRF re-validation in `http-retriever` are already covered.
+Still untested: the auth service, the survey processor, the shape processor, content
+extraction, and parts of `http-retriever` (redirect-limit exhaustion, missing
+`Location` header, body size cap). `App.tsx` is 1,699 lines behind one smoke test.
+Robots parsing (item 4) and the redirect-chain SSRF re-validation in `http-retriever`
+are already covered.
+
+**`OperationRepository` and the migration runner resolved.** Added a
+Postgres-service-container CI job (`integration` in `.github/workflows/ci.yml`) and
+`*.integration.test.ts` files run against a real, disposable database-per-file
+(`apps/api/src/operations/repository.integration.test.ts`,
+`apps/api/src/database/migrate.integration.test.ts`) — kept out of the normal
+`vitest run src` unit-test run via `apps/api/vitest.config.ts`'s exclude, with their
+own `npm run test:integration` and config. Covers the idempotency create/replay/
+conflict SQL, `contentExpiresAt`'s interval arithmetic, `cancel()`'s `CASE WHEN`
+across queued/running/unknown-id, pagination, `expireContent()`, and — for
+`runMigrations` — a fresh-DB apply, a no-op second run, and two pools racing to
+migrate the same database concurrently (exercises the `pg_advisory_xact_lock`).
 
 ## 6. Reconcile `docs/security.md` with the implementation — `done`
 

@@ -10,6 +10,9 @@ All notable changes to Stratafetch are documented here. The project follows
 - Sentry error tracking for the API (`SENTRY_DSN`) and dashboard
   (`VITE_SENTRY_DSN`), disabled by default and opt-in via environment
   variables.
+- A Postgres-backed integration test suite (`npm run test:integration`,
+  CI's `integration` job) covering `OperationRepository`'s idempotency SQL
+  and `runMigrations` against a real, disposable database.
 
 ### Changed
 
