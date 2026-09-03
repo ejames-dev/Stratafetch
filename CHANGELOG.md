@@ -13,6 +13,10 @@ All notable changes to Stratafetch are documented here. The project follows
 - A Postgres-backed integration test suite (`npm run test:integration`,
   CI's `integration` job) covering `OperationRepository`'s idempotency SQL
   and `runMigrations` against a real, disposable database.
+- Unit test coverage for the auth service, the shape processor, survey
+  traversal logic, content extraction (HTML and PDF), and the remaining
+  `http-retriever` gaps (redirect-limit exhaustion, missing `Location`
+  header, body size limits, egress proxy dispatcher wiring).
 
 ### Changed
 
@@ -38,6 +42,13 @@ All notable changes to Stratafetch are documented here. The project follows
 - Corrected `docs/security.md`'s DNS-rebinding claim: the proxied path is
   protected by Squid resolving and connecting to the target itself, not by
   application-layer address pinning, which was never implemented.
+
+### Fixed
+
+- Fixed `retrieveWithHttp`'s response-size limit crashing with an unhandled
+  `ERR_INVALID_STATE` instead of returning `CONTENT_TOO_LARGE` whenever a
+  streamed response (any response without an accurate `Content-Length`, e.g.
+  chunked transfer-encoding) exceeded the configured byte limit.
 
 ## [1.0.0-alpha.2] - 2026-08-24
 

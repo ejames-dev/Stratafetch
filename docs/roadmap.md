@@ -111,11 +111,25 @@ anchors, longest-match precedence, and `Crawl-delay`/`Sitemap:` directives.
 
 ## 5. Backfill tests — `in progress`
 
-Still untested: the auth service, the survey processor, the shape processor, content
-extraction, and parts of `http-retriever` (redirect-limit exhaustion, missing
-`Location` header, body size cap). `App.tsx` is 1,699 lines behind one smoke test.
-Robots parsing (item 4) and the redirect-chain SSRF re-validation in `http-retriever`
-are already covered.
+Still untested: `App.tsx`, 1,699 lines behind one smoke test.
+
+**Auth service, survey processor, shape processor, content extraction, and the
+remaining `http-retriever` gaps resolved.** Added `apps/api/src/auth/service.test.ts`,
+`apps/api/src/shapes/processor.test.ts`, `apps/api/src/fetch/extract.test.ts`
+(including a hand-built minimal PDF fixture, no external file needed), traversal
+tests in `apps/api/src/surveys/processor.test.ts` (maxDepth, include/exclude,
+subdomains, robots-disallowed URLs, cancellation, fetcher failures), and redirect/
+size-limit/dispatcher tests in `apps/api/src/fetch/http-retriever.test.ts`.
+
+Writing the body-size-limit test surfaced a real bug in `readLimitedBody`
+(`http-retriever.ts`): once a streamed response (no, or an understated,
+`Content-Length` — any chunked-transfer response) exceeded `maxBytes`, it called
+`response.body.cancel()` on a stream still locked by the very `for await` iterating
+it, throwing an unhandled `ERR_INVALID_STATE` instead of the intended
+`CONTENT_TOO_LARGE` error — confirmed against a real local HTTP server, not just the
+mocked test. Fixed by removing the explicit `cancel()`: throwing out of a
+`for await` loop already triggers the async iterator's implicit cleanup, which
+cancels the reader on its own.
 
 **`OperationRepository` and the migration runner resolved.** Added a
 Postgres-service-container CI job (`integration` in `.github/workflows/ci.yml`) and
