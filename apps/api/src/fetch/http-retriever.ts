@@ -49,11 +49,15 @@ async function readLimitedBody(
 
   const chunks: Buffer[] = [];
   let size = 0;
+  // Throwing out of a for-await loop over a ReadableStream lets the async
+  // iterator's implicit cleanup release the reader (it calls the iterator's
+  // return(), which cancels it) — calling response.body.cancel() here
+  // ourselves is not just redundant but throws ERR_INVALID_STATE, because
+  // the stream is still locked by this very iteration.
   for await (const chunk of response.body) {
     const buffer = Buffer.from(chunk);
     size += buffer.length;
     if (size > maxBytes) {
-      await response.body.cancel();
       throw new AppError(
         "The response is larger than the configured limit.",
         413,
