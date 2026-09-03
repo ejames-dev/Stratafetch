@@ -55,6 +55,35 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: stratafetch
+          POSTGRES_USER: stratafetch
+          POSTGRES_PASSWORD: stratafetch
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U stratafetch -d stratafetch"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # localhost, not the "postgres" hostname compose.yaml uses — that only
+      # resolves between containers on the compose network. A service
+      # container is reached through its mapped host port instead.
+      DATABASE_URL: postgresql://stratafetch:stratafetch@localhost:5432/stratafetch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace @stratafetch/contracts
+      - run: npm run test:integration --workspace @stratafetch/api
+
   compose-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
