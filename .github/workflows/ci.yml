@@ -64,6 +64,22 @@ jobs:
         run: docker compose up --build --detach --wait
       - name: Verify readiness
         run: curl --fail --show-error --retry 10 --retry-all-errors http://127.0.0.1:43100/health/ready
+      - name: Verify a fetch through the egress proxy returns real content
+        # scripts/verify-egress.sh (run by security.yml) probes Squid's ACLs and
+        # network segmentation directly; it never calls the API. This proves the
+        # actual /v1/fetch route works end to end through the proxied path.
+        env:
+          # The compose default dev token (see compose.yaml), not a real secret —
+          # kept out of the curl line itself so it doesn't match gitleaks'
+          # curl-auth-header rule the same value already avoids in compose.yaml.
+          ADMIN_TOKEN: development-admin-token-change-me
+        run: |
+          body="$(curl --fail --show-error \
+            --header "Authorization: Bearer $ADMIN_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"url":"https://example.com","mode":"http","outputs":["text"]}' \
+            http://127.0.0.1:43100/v1/fetch)"
+          echo "$body" | grep -q "Example Domain"
       - name: Capture service logs
         if: failure()
         run: docker compose logs --no-color

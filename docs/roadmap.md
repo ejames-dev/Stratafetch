@@ -77,61 +77,56 @@ original re-raises its stored error (`502`), and a replay that races an unfinish
 returns `409 IDEMPOTENCY_IN_PROGRESS`. Covered by three tests in `app.test.ts`; `docs/api.md`
 updated.
 
-## 3. Harden and prove the egress path — `todo`
+## 3. Harden and prove the egress path — `done`
 
-Not a correctness blocker. Verified on 2026-08-29: `NODE_USE_ENV_PROXY=1` genuinely
-routes global `fetch` through the proxy on Node v22.23.0 and v24.17.0, so squid plus the
-`internal: true` network is enforcing real egress control today. What remains is
-fragility, not breakage:
+**Resolved 2026-08-30 (`50a3470`).** `NODE_USE_ENV_PROXY` never actually reached the
+proxy for `http://` targets on the pinned Node 22 runtime (confirmed empirically: the
+request hung until timeout). Replaced with an explicit `undici.ProxyAgent` dispatcher
+built once per `proxyUrl` in `fetch/service.ts` and passed to both retrievers,
+matching how `browser-retriever.ts` already configured Playwright's proxy directly —
+one mechanism (`EGRESS_PROXY_URL`) shared by both retrieval paths, no env-var reliance
+left. The same commit scoped Squid's CONNECT-allowed ports to 80+443 (the new
+dispatcher always CONNECT-tunnels, including for `http://`), ran egress as a non-root
+user with no capabilities and a read-only filesystem, digest-pinned its base image and
+package versions, and added `no-new-privileges` across the compose services.
 
-- Node emits `[UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental`. The egress
-  security boundary depends on an experimental undici feature.
-- `Dockerfile` uses the floating `node:22-bookworm-slim` tag and `engines` allows
-  `>=22`. The env-proxy support was backported partway through the 22.x line, so an
-  older 22.x would silently stop proxying. Nothing pins this.
-- `fetch/service.ts` passes `proxy:` explicitly to the browser retriever while every
-  other outbound call relies on the environment variable — two mechanisms for one
-  boundary.
+Three follow-ups that commit didn't cover, closed alongside this note:
+`Dockerfile`'s own base image was not digest-pinned (only `Dockerfile.egress`/
+`Dockerfile.ingress` were — now `Dockerfile` is too); `compose-smoke` checked
+`/health/ready` only, not a real `POST /v1/fetch` through the proxy (now asserts real
+content comes back); and, found while adding that check — a genuinely broken path, not
+a doc gap: `assertSafeHttpUrl`'s DNS-over-HTTPS fallback (used because `api`/`worker`
+have no direct route out on the internal-only network) had no proxy dispatcher of its
+own, so it silently failed too, and **every fetch against a real hostname was rejected
+with `DNS_RESOLUTION_FAILED`** in the actual deployed stack. Fixed by routing it through
+the same `undici.ProxyAgent` `http-retriever.ts` already builds. Also found in the
+process, unrelated to the original item: `surveys/processor.ts`'s sitemap fetch was the
+one outbound call in the codebase not preceded by `assertSafeHttpUrl` — fixed here too.
 
-Actions:
+## 4. Rewrite the robots.txt parser — `done`
 
-- Set an explicit dispatcher (`ProxyAgent` / `EnvHttpProxyAgent` via
-  `setGlobalDispatcher`) once at process start in both `server.ts` and `worker.ts`, so
-  both retrieval paths share one mechanism and neither depends on env-var handling.
-- Add `.node-version` and tighten `engines.node` to a floor that actually has the
-  behaviour the deployment relies on.
-- Extend the `compose-smoke` CI job past `/health/ready` to issue a real `POST /v1/fetch`
-  and assert content came back. No current test would catch a broken egress path.
-
-## 4. Rewrite the robots.txt parser — `todo`
-
-`robots/service.ts` has no tests, and robots compliance is a headline claim.
-
-- Consecutive `User-agent:` lines forming one group drop rules. `User-agent: *` followed
-  by `User-agent: Googlebot` then `Disallow: /x` sets `applies = false` and discards a
-  rule that does apply to `*`.
-- `permitted()` uses `path.startsWith(rule.path)`, so `*` wildcards and `$` anchors are
-  matched literally. `Disallow: /*.pdf$` matches nothing.
-- `Crawl-delay` and `Sitemap:` directives are ignored entirely.
-
-Rewrite against a test table covering group merging, wildcards, anchors, longest-match
-precedence, and the two ignored directives.
+**Resolved.** `robots/service.ts` was rewritten against a test table
+(`apps/api/src/robots/service.test.ts`, PR #15) covering group merging, wildcards,
+anchors, longest-match precedence, and `Crawl-delay`/`Sitemap:` directives.
 
 ## 5. Backfill tests — `todo`
 
-Seven test files for a security-sensitive crawler. Untested: the auth service,
-`OperationRepository` (the idempotency replay/conflict SQL is subtle), robots parsing,
-the survey processor, the shape processor, content extraction, the redirect chain in
-`http-retriever`, and the migration runner. `App.tsx` is 1,699 lines behind one smoke
-test. Prefer a Postgres service container so migrations are exercised too.
+Untested: the auth service, `OperationRepository` (the idempotency replay/conflict SQL
+is subtle), the survey processor, the shape processor, content extraction, parts of
+`http-retriever` (redirect-limit exhaustion, missing `Location` header, body size cap),
+and the migration runner. `App.tsx` is 1,699 lines behind one smoke test. Prefer a
+Postgres service container so migrations are exercised too. Robots parsing (item 4) and
+the redirect-chain SSRF re-validation in `http-retriever` are already covered.
 
-## 6. Reconcile `docs/security.md` with the implementation — `todo`
+## 6. Reconcile `docs/security.md` with the implementation — `done`
 
-The doc instructs operators to "pin the validated public address for the connection to
-reduce DNS-rebinding exposure." `assertSafeHttpUrl` resolves DNS, checks the addresses,
-then discards them; `fetch` re-resolves independently. Either implement address pinning
-via a custom dispatcher or `lookup`, or amend the doc. As written it overstates the
-posture.
+**Resolved 2026-08-30 (`50a3470`).** The doc claimed "pin the validated public address
+for the connection to reduce DNS-rebinding exposure," but `assertSafeHttpUrl` resolves
+DNS, checks the addresses, then discards them — no app-layer pinning was ever
+implemented. Corrected to describe what actually closes the DNS-rebinding gap on the
+proxied path: Squid resolves and connects to the target itself and evaluates its
+IP-range rules against that resolved address, so the TOCTOU window is closed at the
+proxy, not by application-layer pinning.
 
 ## Backlog
 
@@ -141,8 +136,7 @@ Smaller items, no fixed order:
   `/v1/admin/keys/{id}`, `/v1/admin/providers` — and `/metrics`. `openapi:check` passes
   because it compares against the same incomplete generator.
 - Survey discovery reads only `/sitemap.xml`: no sitemap-index recursion, no `.gz`, no
-  `Sitemap:` from robots.txt. That fetch is also the only outbound call in the codebase
-  not preceded by `assertSafeHttpUrl`.
+  `Sitemap:` from robots.txt.
 - BullMQ `attempts: 3` combined with processors that call `operations.fail()` and then
   rethrow means a failing Collection re-fetches every URL up to three times and the
   operation status flaps `failed -> running -> completed`.
