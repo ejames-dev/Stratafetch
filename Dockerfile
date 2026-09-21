@@ -20,6 +20,9 @@ WORKDIR /app
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 RUN npx playwright install --with-deps chromium \
+  && apt-get update \
+  && apt-get upgrade -y --no-install-recommends libpcre2-8-0 \
+  && rm -rf /var/lib/apt/lists/* \
   && chown -R node:node /ms-playwright \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json

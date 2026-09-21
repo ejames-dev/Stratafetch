@@ -59,6 +59,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          pull: true
           load: true
           tags: stratafetch:security-scan
           cache-from: type=gha
