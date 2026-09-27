@@ -5,6 +5,8 @@ All notable changes to Stratafetch are documented here. The project follows
 
 ## [Unreleased]
 
+## [1.0.0-alpha.3] - 2026-09-27
+
 ### Added
 
 - Sentry error tracking for the API (`SENTRY_DSN`) and dashboard
@@ -17,11 +19,17 @@ All notable changes to Stratafetch are documented here. The project follows
   traversal logic, content extraction (HTML and PDF), and the remaining
   `http-retriever` gaps (redirect-limit exhaustion, missing `Location`
   header, body size limits, egress proxy dispatcher wiring).
+- `GET /v1/shapes/{id}` for parity with Survey and Collection typed reads.
 
 ### Changed
 
 - Rewrote the robots.txt parser to fix group merging, wildcard and `$`-anchor
   matching, and previously ignored `Crawl-delay`/`Sitemap:` directives.
+- Capability scopes can read, export, and cancel operations of their own type
+  (for example, a `collect` key can follow Collection work) without requiring
+  `admin` for `GET /v1/operations/{id}`.
+- Idempotent replays for Fetch and Search return the same response envelope as
+  the original successful request.
 
 ### Security
 
@@ -42,6 +50,8 @@ All notable changes to Stratafetch are documented here. The project follows
 - Corrected `docs/security.md`'s DNS-rebinding claim: the proxied path is
   protected by Squid resolving and connecting to the target itself, not by
   application-layer address pinning, which was never implemented.
+- Upgraded `libpcre2-8-0` in application and egress images after Playwright OS
+  dependencies to satisfy container vulnerability scanning gates.
 
 ### Fixed
 
@@ -79,5 +89,6 @@ All notable changes to Stratafetch are documented here. The project follows
   CRITICAL/HIGH CVEs in stale Alpine packages carried by the abandoned `1.27-alpine`
   tag.
 
-[Unreleased]: https://github.com/ejames-dev/Stratafetch/compare/v1.0.0-alpha.2...main
+[Unreleased]: https://github.com/ejames-dev/Stratafetch/compare/v1.0.0-alpha.3...main
+[1.0.0-alpha.3]: https://github.com/ejames-dev/Stratafetch/compare/v1.0.0-alpha.2...v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://github.com/ejames-dev/Stratafetch/commits/v1.0.0-alpha.2
