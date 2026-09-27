@@ -52,6 +52,8 @@ All notable changes to Stratafetch are documented here. The project follows
   application-layer address pinning, which was never implemented.
 - Upgraded `libpcre2-8-0` in application and egress images after Playwright OS
   dependencies to satisfy container vulnerability scanning gates.
+- Rebased the ingress image on a current `nginx:alpine` digest and upgraded
+  installed Alpine packages to clear CRITICAL/HIGH findings in the release scan.
 
 ### Fixed
 
