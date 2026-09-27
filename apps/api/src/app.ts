@@ -116,7 +116,7 @@ export function buildApp(config: AppConfig, deps: AppDependencies = {}) {
   app.get("/health", async () => ({
     status: "ok",
     service: "stratafetch-api",
-    version: "1.0.0-alpha.2",
+    version: "1.0.0-alpha.3",
   }));
   app.get("/health/ready", async (_req, reply) => {
     try {
